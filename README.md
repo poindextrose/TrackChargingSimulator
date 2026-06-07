@@ -26,4 +26,4 @@ The full energy model, the Model S Plaid Supercharger charge curve, and the simu
 algorithm are documented in
 [`docs/superpowers/specs/2026-06-07-track-charging-simulator-design.md`](docs/superpowers/specs/2026-06-07-track-charging-simulator-design.md).
 
-> **Status:** complete — open `index.html` in any browser. Run `node --test` to verify the engine (38 tests).
+> **Status:** complete — open `index.html` in any browser. Run `node --test` to verify the engine and UI logic.

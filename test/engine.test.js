@@ -311,4 +311,14 @@ test('SMOKE: default config produces a coherent A/B/C comparison', () => {
   assert.ok(C.fromSuperchargerKwh > 0);          // C actually supercharges
 });
 
+test('simulate A: no generator (0 kW) yields zero fuel and finite results', () => {
+  var p = Sim.defaultParams();
+  p.genPowerKw = 0; // battery-only trailer, no generator
+  var r = Sim.simulate(p, 'A');
+  assert.equal(r.metrics.fuelGal, 0);
+  assert.ok(isFinite(r.metrics.minSocKwh));
+  assert.ok(isFinite(r.metrics.endSocKwh));
+  assert.equal(typeof r.metrics.feasible, 'boolean');
+});
+
 module.exports = { loadSim };
