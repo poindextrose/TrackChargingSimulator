@@ -467,6 +467,92 @@ var UI = (function () {
     return result; // chart drawn in Task 11
   }
 
+  function sessionBands(p, scenarioId) {
+    return Sim.buildSchedule(p, scenarioId).map(function (s) {
+      return { start: s.startMin, end: s.endMin };
+    });
+  }
+
+  function drawTimeline(canvas, p, result, scenarioId, opts) {
+    var ctx = canvas.getContext('2d');
+    var W = canvas.width, H = canvas.height;
+    var b = { w:W, h:H, padL:30, padR:8, padT:8, padB:18, xMin:opts.xMin, xMax:opts.xMax, yMin:0, yMax:100 };
+    var s = UI.chartScale(b);
+    ctx.clearRect(0, 0, W, H);
+
+    // y gridlines 0/50/100
+    ctx.strokeStyle = '#222732'; ctx.fillStyle = '#6b7280'; ctx.font = '10px sans-serif'; ctx.lineWidth = 1;
+    [0, 50, 100].forEach(function (yy) {
+      ctx.beginPath(); ctx.moveTo(b.padL, s.Y(yy)); ctx.lineTo(W - b.padR, s.Y(yy)); ctx.stroke();
+      ctx.fillText(yy + '%', 4, s.Y(yy) + 3);
+    });
+    // hour ticks
+    for (var hh = Math.ceil(opts.xMin / 60); hh <= opts.xMax / 60; hh++) {
+      var x = s.X(hh * 60);
+      ctx.fillText(((hh % 12) || 12), x - 4, H - 5);
+    }
+    // session bands
+    ctx.fillStyle = 'rgba(99,102,241,.16)';
+    sessionBands(p, scenarioId).forEach(function (band) {
+      ctx.fillRect(s.X(band.start), b.padT, Math.max(1, s.X(band.end) - s.X(band.start)), H - b.padT - b.padB);
+    });
+    // reserve line
+    if (p.reserveKwh > 0) {
+      var ry = s.Y(p.reserveKwh / p.capacityKwh * 100);
+      ctx.strokeStyle = 'rgba(239,68,68,.6)'; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(b.padL, ry); ctx.lineTo(W - b.padR, ry); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // trailer (dashed blue) then car (solid green)
+    function line(getY, color, dashed) {
+      ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.setLineDash(dashed ? [4, 3] : []);
+      ctx.beginPath();
+      result.timeline.forEach(function (pt, i) {
+        var xx = s.X(pt.min), yy = s.Y(getY(pt));
+        if (i) ctx.lineTo(xx, yy); else ctx.moveTo(xx, yy);
+      });
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    line(function (pt) { return pt.trlPct; }, '#3b82f6', true);
+    line(function (pt) { return pt.carPct; }, '#22c55e', false);
+  }
+
+  function drawOverlay(p, results) {
+    var canvas = document.getElementById('overlay');
+    var ctx = canvas.getContext('2d');
+    var W = canvas.width, H = canvas.height;
+    var xMin = p.arrivalTimeMin, xMax = 16 * 60 + p.sessionDurationMin;
+    var b = { w:W, h:H, padL:34, padR:10, padT:10, padB:20, xMin:xMin, xMax:xMax, yMin:0, yMax:100 };
+    var sc = UI.chartScale(b);
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = '#222732'; ctx.fillStyle = '#6b7280'; ctx.font = '11px sans-serif';
+    [0, 25, 50, 75, 100].forEach(function (yy) {
+      ctx.beginPath(); ctx.moveTo(b.padL, sc.Y(yy)); ctx.lineTo(W - b.padR, sc.Y(yy)); ctx.stroke();
+      ctx.fillText(yy + '%', 6, sc.Y(yy) + 3);
+    });
+    for (var hh = Math.ceil(xMin / 60); hh <= xMax / 60; hh++) {
+      ctx.fillText(((hh % 12) || 12), sc.X(hh * 60) - 4, H - 5);
+    }
+    var colors = { A: '#22c55e', B: '#eab308', C: '#06b6d4' };
+    ['A', 'B', 'C'].forEach(function (id) {
+      ctx.strokeStyle = colors[id]; ctx.lineWidth = 1.8; ctx.beginPath();
+      results[id].timeline.forEach(function (pt, i) {
+        var xx = sc.X(pt.min), yy = sc.Y(pt.carPct);
+        if (i) ctx.lineTo(xx, yy); else ctx.moveTo(xx, yy);
+      });
+      ctx.stroke();
+      ctx.fillStyle = colors[id]; ctx.fillText(id, W - b.padR - 40 + 14 * ['A','B','C'].indexOf(id), 14);
+    });
+  }
+
+  function drawAllCharts(p, results) {
+    var xMin = p.arrivalTimeMin, xMax = 16 * 60 + p.sessionDurationMin;
+    ['A', 'B', 'C'].forEach(function (id) {
+      var cv = document.getElementById('chart' + id);
+      if (cv) drawTimeline(cv, p, results[id], id, { xMin: xMin, xMax: xMax });
+    });
+    drawOverlay(p, results);
+  }
+
   function render() {
     var p = UI.readParams(currentValues());
     var results = {};
@@ -474,7 +560,7 @@ var UI = (function () {
       results[scen.id] = Sim.simulate(p, scen.id);
       renderCard(scen, results[scen.id]);
     });
-    if (typeof drawAllCharts === 'function') drawAllCharts(p, results); // Task 11
+    drawAllCharts(p, results);
   }
 
   window.__render = render; // exposed for manual debugging

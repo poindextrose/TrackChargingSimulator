@@ -74,3 +74,13 @@ test('formatMetrics adds supercharge timing rows for C', () => {
   const labels = UI.formatMetrics(m, 'C').map(r => r.label.toLowerCase());
   assert.ok(labels.some(l => l.includes('return') || l.includes('back')));
 });
+
+test('chartScale maps domain to canvas box', () => {
+  const UI = loadUI();
+  assert.ok(typeof UI.chartScale === 'function');
+  const s = UI.chartScale({ w:100, h:100, padL:10, padR:0, padT:0, padB:0, xMin:0, xMax:10, yMin:0, yMax:100 });
+  assert.equal(s.X(0), 10);
+  assert.equal(s.X(10), 100);
+  assert.equal(s.Y(100), 0);
+  assert.equal(s.Y(0), 100);
+});
