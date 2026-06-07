@@ -37,8 +37,40 @@ var Sim = (function () {
     return c[c.length - 1][1];
   }
 
+  var DEFAULTS = {
+    arrivalTimeMin: 8 * 60,
+    capacityKwh: 100,
+    arrivalSocNoTrailerPct: 87,
+    towingCostPct: 4,
+    sessionEnergyKwh: 25,
+    sessionDurationMin: 15,
+    coolingPerGapKwh: 6,
+    trailerCapKwh: 50,
+    genPowerKw: 13,
+    acdcEff: 0.94,
+    fuelBurnGalPerHr: 1.3,
+    dcPowerKw: 40,
+    dcdcEff: 0.95,
+    reserveKwh: 0,
+    firstSessionMin: 9 * 60,
+    sessionCount: 7,
+    lunchSkipHour: 12,
+    driveTimeMin: 30,
+    driveConsumptionPct: 14,
+    scTargetSocPct: 100,
+    scPowerCapKw: 250,
+  };
+  function defaultParams() {
+    var o = {}; for (var k in DEFAULTS) o[k] = DEFAULTS[k]; return o;
+  }
+  function effectiveArrivalKwh(p) {
+    return (p.arrivalSocNoTrailerPct - p.towingCostPct) / 100 * p.capacityKwh;
+  }
+
   function simulate(p, scenarioId) { return { timeline: [], metrics: {} }; }
-  return { PLAID_V3_CURVE: PLAID_V3_CURVE, curvePower: curvePower, simulate: simulate };
+  return { PLAID_V3_CURVE: PLAID_V3_CURVE, curvePower: curvePower,
+           defaultParams: defaultParams, effectiveArrivalKwh: effectiveArrivalKwh,
+           simulate: simulate };
 })();
 // SIM_ENGINE_END
 </script>

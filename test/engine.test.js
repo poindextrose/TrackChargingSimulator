@@ -40,3 +40,20 @@ test('curvePower clamps outside the table', () => {
   assert.equal(Sim.curvePower(0), 210);   // below first anchor (5)
   assert.equal(Sim.curvePower(120), 7);   // above last anchor (100)
 });
+
+test('defaultParams matches the spec defaults', () => {
+  var p = Sim.defaultParams();
+  assert.equal(p.capacityKwh, 100);
+  assert.equal(p.arrivalSocNoTrailerPct, 87);
+  assert.equal(p.towingCostPct, 4);
+  assert.equal(p.dcPowerKw, 40);
+  assert.equal(p.dcdcEff, 0.95);
+  assert.equal(p.acdcEff, 0.94);
+  assert.equal(p.genPowerKw, 13);
+  assert.equal(p.trailerCapKwh, 50);
+});
+
+test('effectiveArrivalKwh applies the towing cost', () => {
+  var p = Sim.defaultParams();
+  assert.equal(Sim.effectiveArrivalKwh(p), 83); // (87-4)% of 100
+});
