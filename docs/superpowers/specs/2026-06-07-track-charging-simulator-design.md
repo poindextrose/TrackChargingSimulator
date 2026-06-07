@@ -52,7 +52,7 @@ Sessions are 15 min, start at the top of each hour, 7 total, no 12:00 session (l
 
 - Simulation runs from **arrival (08:00)** to **end of last session (16:15)**.
 - **Charging windows** = arrival→S1 plus every gap between consecutive sessions.
-- The arrival→S1 window (08:00–09:00) is **pure charging, no cooling** (battery is cold).
+- The arrival→S1 window (08:00–09:00) carries a separate **pre-session cooling lump** (`preSessionCooling`, default 5 kWh) for heat carried in from the drive/tow, then charges.
 - Every gap that *follows* a session gets one cooling lump (see §6).
 
 Schedule is parameterized by first-session time, session count, lunch-skip hour, and session duration, but defaults reproduce the table above.
@@ -71,6 +71,7 @@ All live; changing any re-runs all three scenarios. Grouped in the top input bar
 | Energy per session | 25 | kWh | Drawn from pack during a session (includes on-track cooling) |
 | Session duration | 15 | min | |
 | Cooling per gap | 6 | kWh | Track-mode cooling debited per post-session gap |
+| Pre-session cooling | 5 | kWh | Cooling lump over the arrival→first-session window (heat from the drive/tow in) |
 
 ### Trailer & generator
 | Param | Default | Unit | Notes |
@@ -114,10 +115,10 @@ Units: kWh, kW, hours. Time step Δt = 1 min = 1/60 h.
 - Trailer battery: lossless (charge and discharge at 100%).
 
 ### Cooling
-Track-mode cooling is debited as a **fixed lump of `coolingPerGap` (6 kWh) per post-session gap**, spread evenly across that gap as a continuous draw:
-`P_cool = coolingPerGap / gapHours` kW, subtracted from the car pack throughout the gap.
-- Applied to gaps following S1…S6 while the car is parked at the track.
-- **Not** applied to the arrival→S1 window, the period after the final session, or (scenario C) the Supercharge trip.
+Track-mode cooling is debited as fixed lumps, each spread evenly across its window as a continuous draw (`P_cool = lump / windowHours`, subtracted from the car pack throughout):
+- A **pre-session lump** (`preSessionCooling`, default 5 kWh) over the arrival→first-session window — heat carried in from the drive/tow.
+- A **per-gap lump** of `coolingPerGap` (default 6 kWh) in each post-session gap (gaps following S1…S6), while the car is parked at the track.
+- **Not** applied to the period after the final session, or (scenario C) the Supercharge trip.
 - While the car is plugged in, cooling is covered by the DC-DC feed (so net pack gain = delivered charge − P_cool). If the car is parked but not charging (e.g. pack full), cooling discharges the pack directly.
 
 ### Per-minute logic
@@ -133,7 +134,7 @@ For each minute, classify the car's state:
   - Bus needed for target = `delivered / η_dcdc`.
   - Generator supplies `P_gen_bus`; trailer supplies the remainder by discharging, capped by `E_tr`.
   - If trailer can't cover the remainder, `delivered` is reduced to what `(P_gen_bus + trailerAvail) × η_dcdc` allows (≤ 40).
-- Net pack change: `E_car += (delivered − P_cool) × Δt`. (`P_cool` = 0 in the arrival→S1 window.)
+- Net pack change: `E_car += (delivered − P_cool) × Δt`. (`P_cool` carries the pre-session lump in the arrival→S1 window.)
 - Trailer is discharging (not charging) while feeding the car. `fromTrailer += trailerDischarge × Δt`. `fromGenerator += P_gen_bus × Δt`.
 
 **AWAY_DRIVE** (scenario C, the two 30-min legs):

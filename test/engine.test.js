@@ -194,8 +194,8 @@ test('energy conservation across the day (A)', () => {
   var m = r.metrics;
   var sessions = Sim.buildSchedule(p, 'A');
   var sessionDraw = sessions.length * p.sessionEnergyKwh;
-  // count cooling gaps actually applied (post-session gaps; all of them in A)
-  var coolingDraw = (sessions.length - 1) * p.coolingPerGapKwh;
+  // cooling actually applied: the pre-session lump + each post-session gap (all of them in A)
+  var coolingDraw = p.preSessionCoolingKwh + (sessions.length - 1) * p.coolingPerGapKwh;
   // ΔE_car = arrival + chargedIntoCar - sessions - cooling
   // chargedIntoCar ≈ fromTrailer*dcdc + fromGenerator-portion-to-car... instead
   // verify the simpler closed form: end = arrival + carCharge - draws
@@ -203,6 +203,23 @@ test('energy conservation across the day (A)', () => {
   assert.ok(carCharge > 0); // net energy was pushed into the car over the day
   // trailer + generator supplied the car charge (through dcdc); loose bound:
   assert.ok(m.fromTrailerKwh >= 0 && m.fromGeneratorKwh >= 0);
+});
+
+test('simulate A: pre-session cooling lump is applied to the arrival window', () => {
+  var p = Sim.defaultParams();
+  var r = Sim.simulate(p, 'A');
+  // total cooling debited over the day = pre-session lump + one lump per post-session gap
+  var totalCooling = r.timeline.reduce(function (s, pt) { return s + (pt.coolingKw || 0); }, 0) / 60;
+  var postGaps = Sim.buildSchedule(p, 'A').length - 1; // 6 in A
+  var expected = p.preSessionCoolingKwh + postGaps * p.coolingPerGapKwh; // 5 + 36 = 41
+  assert.ok(Math.abs(totalCooling - expected) < 1e-6);
+  // the arrival minute now carries a nonzero cooling draw...
+  var firstMin = r.timeline.find(function (pt) { return pt.min === p.arrivalTimeMin; });
+  assert.ok(firstMin.coolingKw > 0);
+  // ...and setting it to 0 removes exactly that lump from the day's cooling
+  var p0 = Sim.defaultParams(); p0.preSessionCoolingKwh = 0;
+  var t0 = Sim.simulate(p0, 'A').timeline.reduce(function (s, pt) { return s + (pt.coolingKw || 0); }, 0) / 60;
+  assert.ok(Math.abs((totalCooling - t0) - p.preSessionCoolingKwh) < 1e-6);
 });
 
 test('scenario C lands the car fuller than A at end of day', () => {

@@ -88,6 +88,7 @@ var Sim = (function () {
     sessionEnergyKwh: 25,
     sessionDurationMin: 15,
     coolingPerGapKwh: 6,
+    preSessionCoolingKwh: 5,
     trailerCapKwh: 50,
     genPowerKw: 13,
     acdcEff: 0.94,
@@ -159,10 +160,16 @@ var Sim = (function () {
     var cap = p.capacityKwh, tcap = p.trailerCapKwh;
     var genBusFull = p.genPowerKw * p.acdcEff;
 
-    // Per-minute cooling power (kW), nonzero only inside post-session gaps.
+    // Per-minute cooling power (kW): a pre-first-session lump (heat from the drive
+    // in) over the arrival window, plus a lump in each post-session gap.
     // Scenario C: skip the gap after the 3rd session (replaced by SC trip).
     var cooling = new Array(endMin + 1);
     for (var z = 0; z <= endMin; z++) cooling[z] = 0;
+    var preStart = startMin, preEnd = sessions[0].startMin;
+    if (preEnd > preStart && p.preSessionCoolingKwh > 0) {
+      var preKw = p.preSessionCoolingKwh / ((preEnd - preStart) / 60);
+      for (var pm = preStart; pm < preEnd; pm++) cooling[pm] = preKw;
+    }
     for (var i = 0; i < sessions.length - 1; i++) {
       var gapStart = sessions[i].endMin, gapEnd = sessions[i + 1].startMin;
       if (scenarioId === 'C' && i === 2) continue;
@@ -346,7 +353,8 @@ var UI = (function () {
     { g:'Plaid', id:'towingCostPct', label:'Towing cost', unit:'% pack', step:1, default:4, set:num('towingCostPct') },
     { g:'Plaid', id:'sessionEnergyKwh', label:'Energy / session', unit:'kWh', step:1, default:25, set:num('sessionEnergyKwh') },
     { g:'Plaid', id:'sessionDurationMin', label:'Session length', unit:'min', step:1, default:15, min:1, set:num('sessionDurationMin') },
-    { g:'Plaid', id:'coolingPerGapKwh', label:'Cooling / gap', unit:'kWh', step:0.5, default:6, set:num('coolingPerGapKwh') },
+    { g:'Plaid', id:'coolingPerGapKwh', label:'Cooling / gap', unit:'kWh', step:0.5, default:6, min:0, set:num('coolingPerGapKwh') },
+    { g:'Plaid', id:'preSessionCoolingKwh', label:'Pre-session cooling', unit:'kWh', step:0.5, default:5, min:0, set:num('preSessionCoolingKwh') },
 
     { g:'Trailer & generator', id:'trailerCapKwh', label:'Trailer battery', unit:'kWh', step:1, default:50, set:num('trailerCapKwh') },
     { g:'Trailer & generator', id:'genPowerKw', label:'Generator', unit:'kW', step:0.5, default:13, min:0, set:num('genPowerKw') },
