@@ -287,4 +287,15 @@ test('simulate: a reserve floor makes a marginal day infeasible', () => {
   assert.ok(r.metrics.shortfallKwh > 0);
 });
 
+test('simulate C: a Supercharge that never finishes misses all post-departure sessions', () => {
+  var p = Sim.defaultParams();
+  p.scPowerCapKw = 5; // ~5 kW: cannot reach 100% before day end, so the car never returns
+  var r = Sim.simulate(p, 'C');
+  assert.equal(r.metrics.c.returnMin, null); // never returned
+  var missed = r.metrics.c.missedSessions.map(function (s) { return s.startMin; });
+  [13 * 60, 14 * 60, 15 * 60, 16 * 60].forEach(function (m) {
+    assert.ok(missed.indexOf(m) !== -1, 'expected session at ' + m + ' to be missed');
+  });
+});
+
 module.exports = { loadSim };

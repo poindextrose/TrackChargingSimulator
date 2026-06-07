@@ -281,13 +281,15 @@ var Sim = (function () {
     // the trailer can reach 100% and let the generator idle; while the trailer never
     // fully refills, the generator runs full-rated every minute in all scenarios.
     var fuelGal = genAcKwh * (p.fuelBurnGalPerHr / p.genPowerKw);
-    // Missed sessions are only reported once a return is established (returnMin set).
-    // A pathological config where the Supercharge never completes before day's end
-    // leaves returnMin null and missedSessions empty by design.
+    // Sessions the car can't make. If the trip departed and returned, the missed
+    // sessions are those between departure and return. If it departed but never
+    // returned (returnMin null — e.g. a pathologically slow Supercharger), every
+    // session from the departure onward is missed (the car is stuck charging).
     var missedSessions = [];
-    if (scenarioId === 'C' && trip.returnMin != null) {
+    if (scenarioId === 'C' && trip.phase !== 'off' && trip.phase !== 'before') {
+      var cutoff = trip.returnMin != null ? trip.returnMin : Infinity;
       for (var si = 0; si < sessions.length; si++) {
-        if (sessions[si].startMin >= s3End && sessions[si].startMin < trip.returnMin) {
+        if (sessions[si].startMin >= s3End && sessions[si].startMin < cutoff) {
           missedSessions.push({ index: sessions[si].index, startMin: sessions[si].startMin });
         }
       }
