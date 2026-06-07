@@ -23,3 +23,20 @@ test('engine loads and exposes Sim', () => {
 });
 
 module.exports = { loadSim };
+
+test('curvePower hits known anchors', () => {
+  assert.equal(Sim.curvePower(10), 250);
+  assert.equal(Sim.curvePower(33), 250);
+  assert.equal(Sim.curvePower(80), 68);
+  assert.equal(Sim.curvePower(100), 7);
+});
+
+test('curvePower interpolates linearly between anchors', () => {
+  // 40->195, 50->148; midpoint 45 -> 171.5
+  assert.ok(Math.abs(Sim.curvePower(45) - 171.5) < 1e-6);
+});
+
+test('curvePower clamps outside the table', () => {
+  assert.equal(Sim.curvePower(0), 210);   // below first anchor (5)
+  assert.equal(Sim.curvePower(120), 7);   // above last anchor (100)
+});
