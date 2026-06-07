@@ -67,10 +67,29 @@ var Sim = (function () {
     return (p.arrivalSocNoTrailerPct - p.towingCostPct) / 100 * p.capacityKwh;
   }
 
+  function buildSchedule(p, scenarioId) {
+    var sessions = [];
+    var hourMin = p.firstSessionMin;
+    while (sessions.length < p.sessionCount) {
+      if (hourMin !== p.lunchSkipHour * 60) {
+        sessions.push({
+          index: sessions.length + 1,
+          startMin: hourMin,
+          endMin: hourMin + p.sessionDurationMin,
+        });
+      }
+      hourMin += 60;
+    }
+    if (scenarioId === 'B') {
+      return sessions.filter(function (s) { return s.startMin !== 13 * 60; });
+    }
+    return sessions;
+  }
+
   function simulate(p, scenarioId) { return { timeline: [], metrics: {} }; }
   return { PLAID_V3_CURVE: PLAID_V3_CURVE, curvePower: curvePower,
            defaultParams: defaultParams, effectiveArrivalKwh: effectiveArrivalKwh,
-           simulate: simulate };
+           buildSchedule: buildSchedule, simulate: simulate };
 })();
 // SIM_ENGINE_END
 </script>

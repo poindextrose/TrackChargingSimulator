@@ -57,3 +57,21 @@ test('effectiveArrivalKwh applies the towing cost', () => {
   var p = Sim.defaultParams();
   assert.equal(Sim.effectiveArrivalKwh(p), 83); // (87-4)% of 100
 });
+
+test('buildSchedule A: 7 sessions, hourly from 9:00, no 12:00', () => {
+  var s = Sim.buildSchedule(Sim.defaultParams(), 'A');
+  assert.equal(s.length, 7);
+  assert.deepEqual(s.map(x => x.startMin),
+    [9*60, 10*60, 11*60, 13*60, 14*60, 15*60, 16*60]);
+  assert.equal(s[0].endMin, 9*60 + 15); // 15-min default duration
+});
+
+test('buildSchedule B: drops the 1pm session', () => {
+  var s = Sim.buildSchedule(Sim.defaultParams(), 'B');
+  assert.equal(s.length, 6);
+  assert.ok(!s.some(x => x.startMin === 13*60));
+});
+
+test('buildSchedule C: keeps all 7 sessions', () => {
+  assert.equal(Sim.buildSchedule(Sim.defaultParams(), 'C').length, 7);
+});
