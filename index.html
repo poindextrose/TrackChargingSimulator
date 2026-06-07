@@ -43,6 +43,11 @@
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
   .panel h2 { margin:0 0 8px; font-size:14px; }
   #result .metrics { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:0 22px; margin-top:10px; }
+  #sessions { padding:0 16px 28px; }
+  table.sessions { width:100%; border-collapse:collapse; font-size:12.5px; }
+  table.sessions th, table.sessions td { text-align:left; padding:4px 12px 4px 0; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
+  table.sessions th { color:var(--mut); font-weight:600; }
+  table.sessions tr.skipped td { color:var(--mut); }
   .fld.chk label { display:flex; flex-direction:row; align-items:center; gap:6px; color:var(--txt); font-size:12.5px; cursor:pointer; }
   .fld.chk input { width:auto; margin:0; }
   @media (max-width:880px){ .card{ flex-basis:100%; } }
@@ -52,6 +57,7 @@
 <header><h1>Track Charging Simulator — Ridge Motorsports Park HPDE</h1></header>
 <div id="inputs"></div>
 <div id="result"></div>
+<div id="sessions"></div>
 <script>
 // SIM_ENGINE_START
 var Sim = (function () {
@@ -99,8 +105,9 @@ var Sim = (function () {
     driveConsumptionPct: 14,
     scTargetSocPct: 100,
     scPowerCapKw: 250,
-    supercharge: false,
-    skipS1: false, skipS2: false, skipS3: false, skipS4: false,
+    minTrailerSocPct: 5,
+    supercharge: true,
+    skipS1: false, skipS2: false, skipS3: false, skipS4: true,
     skipS5: false, skipS6: false, skipS7: false,
   };
   function defaultParams() {
@@ -122,7 +129,8 @@ var Sim = (function () {
     var fromGenBus = Math.min(genBus, busNeed);
     var fromTrailerBus = busNeed - fromGenBus;
 
-    var trailerAvailKw = eTr * 60; // kWh available as 1-min power
+    // trailer can only discharge down to its minimum SoC floor
+    var trailerAvailKw = Math.max(0, eTr - p.minTrailerSocPct / 100 * p.trailerCapKwh) * 60;
     if (fromTrailerBus > trailerAvailKw) {
       fromTrailerBus = trailerAvailKw;
       var busActual = fromGenBus + fromTrailerBus;
@@ -153,7 +161,7 @@ var Sim = (function () {
     var dt = 1 / 60;
     var sessions = buildSchedule(p);
     var startMin = p.arrivalTimeMin;
-    var endMin = sessions[sessions.length - 1].endMin;
+    var endMin = sessions.length ? sessions[sessions.length - 1].endMin : startMin;
     var cap = p.capacityKwh, tcap = p.trailerCapKwh;
     var genBusFull = p.genPowerKw * p.acdcEff;
 
@@ -164,11 +172,14 @@ var Sim = (function () {
       if (sessions[di].index === 4) backBy = sessions[di];
     }
     var s3End = depSession ? depSession.endMin : Infinity;
+    // Supercharge and the 1pm session (index 4) are mutually exclusive: turning on
+    // the Supercharge run always skips session 4 (you're away for it).
+    var scSkipsS4 = function (s) { return p.supercharge && s.index === 4; };
 
     // Per-minute cooling power (kW): a pre-first-session lump (heat from the drive
     // in), plus a lump in each gap between sessions the car actually runs. The
     // supercharge away-trip gap (after session 3) gets no lump.
-    var runByUser = sessions.filter(function (s) { return !s.skipped; });
+    var runByUser = sessions.filter(function (s) { return !s.skipped && !scSkipsS4(s); });
     var cooling = new Array(endMin + 1);
     for (var z = 0; z <= endMin; z++) cooling[z] = 0;
     var preEnd = runByUser.length ? runByUser[0].startMin : startMin;
@@ -209,7 +220,7 @@ var Sim = (function () {
       var into = Math.min(busKw, headKw);
       if (into < 0) into = 0;
       eTr += into * dt;
-      genAcKwh += (into / p.acdcEff) * dt;
+      genAcKwh += (p.acdcEff > 0 ? into / p.acdcEff : 0) * dt;
       fromGenerator += into * dt;
       return into;
     }
@@ -254,7 +265,7 @@ var Sim = (function () {
         // entirely — never drawn, even for its post-return minutes.
         var awaySkipped = s && p.supercharge && trip.returnMin != null &&
                           s.startMin >= s3End && s.startMin < trip.returnMin;
-        var run = s && !s.skipped && !awaySkipped;
+        var run = s && !s.skipped && !scSkipsS4(s) && !awaySkipped;
         if (run) {
           mode = 'SESSION';
           var rate = p.sessionEnergyKwh / (p.sessionDurationMin / 60);
@@ -269,7 +280,7 @@ var Sim = (function () {
           eTr -= cd.fromTrailerBusKw * dt;
           fromTrailer += cd.fromTrailerBusKw * dt;
           fromGenerator += cd.fromGenBusKw * dt;
-          genAcKwh += (cd.fromGenBusKw / p.acdcEff) * dt;
+          genAcKwh += (p.acdcEff > 0 ? cd.fromGenBusKw / p.acdcEff : 0) * dt;
           genOn = true;
           var surplus = genBusFull - cd.fromGenBusKw;
           if (surplus > 1e-9 && eTr < tcap) refillTrailer(surplus);
@@ -284,7 +295,7 @@ var Sim = (function () {
 
       timeline.push({
         min: t, mode: mode, coolingKw: coolKw,
-        carPct: eCar / cap * 100, trlPct: eTr / tcap * 100,
+        carPct: eCar / cap * 100, trlPct: tcap > 0 ? eTr / tcap * 100 : 0,
       });
     }
 
@@ -297,9 +308,9 @@ var Sim = (function () {
     var skippedSessions = [];
     for (var sj = 0; sj < sessions.length; sj++) {
       var ss = sessions[sj];
-      var away = ss.startMin >= s3End && ss.startMin < awayEnd;
-      if (ss.skipped || away) {
-        skippedSessions.push({ index: ss.index, startMin: ss.startMin, reason: ss.skipped ? 'skip' : 'supercharge' });
+      var sc = scSkipsS4(ss) || (ss.startMin >= s3End && ss.startMin < awayEnd);
+      if (ss.skipped || sc) {
+        skippedSessions.push({ index: ss.index, startMin: ss.startMin, reason: sc ? 'supercharge' : 'skip' });
       }
     }
 
@@ -308,7 +319,7 @@ var Sim = (function () {
       shortfallKwh: Math.max(0, p.reserveKwh - minSocKwh),
       minSocKwh: minSocKwh, minSocPct: minSocKwh / cap * 100, minSocAtMin: minSocAtMin,
       endSocKwh: eCar, endSocPct: eCar / cap * 100,
-      trailerEndKwh: eTr, trailerEndPct: eTr / tcap * 100,
+      trailerEndKwh: eTr, trailerEndPct: tcap > 0 ? eTr / tcap * 100 : 0,
       genRuntimeHr: genRuntimeMin / 60, fuelGal: fuelGal, genAcKwh: genAcKwh,
       fromArrivalKwh: effectiveArrivalKwh(p),
       fromTrailerKwh: fromTrailer, fromGeneratorKwh: fromGenerator,
@@ -350,6 +361,9 @@ var UI = (function () {
   var check = function (key) {
     return function (out, v) { out[key] = (v === true || v === 'true'); };
   };
+  var run = function (key) { // a "run this session" checkbox maps to the engine's skip flag
+    return function (out, v) { out[key] = !(v === true || v === 'true'); };
+  };
   var UI_FIELDS = [
     { g:'Plaid', id:'arrivalTime', label:'Arrival', kind:'time', default:'08:00',
       set:function(o,v){ o.arrivalTimeMin = hhmmToMin(v); } },
@@ -365,6 +379,7 @@ var UI = (function () {
     { g:'Trailer & generator', id:'genPowerKw', label:'Generator', unit:'kW', step:0.5, default:13, min:0, set:num('genPowerKw') },
     { g:'Trailer & generator', id:'acdcEffPct', label:'AC-DC eff', unit:'%', step:1, default:94, min:1, max:100, set:function(o,v){ o.acdcEff = parseFloat(v)/100; } },
     { g:'Trailer & generator', id:'fuelBurnGalPerHr', label:'Fuel burn', unit:'gal/hr', step:0.1, default:1.3, set:num('fuelBurnGalPerHr') },
+    { g:'Trailer & generator', id:'minTrailerSocPct', label:'Min trailer SoC', unit:'%', step:1, default:5, min:0, max:100, set:num('minTrailerSocPct') },
 
     { g:'Charging', id:'dcPowerKw', label:'DC charge', unit:'kW', step:1, default:40, set:num('dcPowerKw') },
     { g:'Charging', id:'dcdcEffPct', label:'DC-DC eff', unit:'%', step:1, default:95, min:1, max:100, set:function(o,v){ o.dcdcEff = parseFloat(v)/100; } },
@@ -374,19 +389,19 @@ var UI = (function () {
       set:function(o,v){ o.firstSessionMin = hhmmToMin(v); } },
     { g:'Day', id:'sessionCount', label:'# sessions', unit:'', step:1, default:7, min:1, set:num('sessionCount') },
 
-    { g:'Supercharge', id:'supercharge', label:'Supercharge after session 3 (skips session 4)', kind:'check', default:false, set:check('supercharge') },
+    { g:'Supercharge', id:'supercharge', label:'Supercharge after session 3 (skips session 4)', kind:'check', default:true, set:check('supercharge') },
     { g:'Supercharge', id:'driveTimeMin', label:'Drive each way', unit:'min', step:1, default:30, min:1, set:num('driveTimeMin') },
     { g:'Supercharge', id:'driveConsumptionPct', label:'Drive cost / leg', unit:'% pack', step:1, default:14, set:num('driveConsumptionPct') },
     { g:'Supercharge', id:'scTargetSocPct', label:'SC target', unit:'%', step:1, default:100, set:num('scTargetSocPct') },
     { g:'Supercharge', id:'scPowerCapKw', label:'SC power cap', unit:'kW', step:5, default:250, min:1, set:num('scPowerCapKw') },
 
-    { g:'Skip sessions', id:'skipS1', label:'9:00', kind:'check', default:false, set:check('skipS1') },
-    { g:'Skip sessions', id:'skipS2', label:'10:00', kind:'check', default:false, set:check('skipS2') },
-    { g:'Skip sessions', id:'skipS3', label:'11:00', kind:'check', default:false, set:check('skipS3') },
-    { g:'Skip sessions', id:'skipS4', label:'1:00', kind:'check', default:false, set:check('skipS4') },
-    { g:'Skip sessions', id:'skipS5', label:'2:00', kind:'check', default:false, set:check('skipS5') },
-    { g:'Skip sessions', id:'skipS6', label:'3:00', kind:'check', default:false, set:check('skipS6') },
-    { g:'Skip sessions', id:'skipS7', label:'4:00', kind:'check', default:false, set:check('skipS7') },
+    { g:'Sessions', id:'runS1', label:'9:00', kind:'check', default:true, set:run('skipS1') },
+    { g:'Sessions', id:'runS2', label:'10:00', kind:'check', default:true, set:run('skipS2') },
+    { g:'Sessions', id:'runS3', label:'11:00', kind:'check', default:true, set:run('skipS3') },
+    { g:'Sessions', id:'runS4', label:'1:00', kind:'check', default:false, set:run('skipS4') },
+    { g:'Sessions', id:'runS5', label:'2:00', kind:'check', default:true, set:run('skipS5') },
+    { g:'Sessions', id:'runS6', label:'3:00', kind:'check', default:true, set:run('skipS6') },
+    { g:'Sessions', id:'runS7', label:'4:00', kind:'check', default:true, set:run('skipS7') },
   ];
 
   function readParams(values) {
@@ -582,6 +597,18 @@ var UI = (function () {
       var x = s.X(hh * 60);
       ctx.fillText(((hh % 12) || 12), x - 4, H - 5);
     }
+    // driving-time background (the Supercharge drive legs), drawn under the session bands
+    var driveSegs = [], segStart = null;
+    result.timeline.forEach(function (pt) {
+      if (pt.mode === 'DRIVE' && segStart === null) segStart = pt.min;
+      else if (pt.mode !== 'DRIVE' && segStart !== null) { driveSegs.push([segStart, pt.min]); segStart = null; }
+    });
+    if (segStart !== null) driveSegs.push([segStart, result.timeline[result.timeline.length - 1].min + 1]);
+    ctx.fillStyle = 'rgba(234,179,8,.18)'; // amber = driving
+    driveSegs.forEach(function (seg) {
+      ctx.fillRect(s.X(seg[0]), b.padT, Math.max(1, s.X(seg[1]) - s.X(seg[0])), H - b.padT - b.padB);
+    });
+
     // session bands: solid = run, dashed outline = skipped (user or supercharge-away)
     var skippedIdx = {};
     result.metrics.skippedSessions.forEach(function (ss) { skippedIdx[ss.index] = true; });
@@ -623,8 +650,9 @@ var UI = (function () {
       ctx.beginPath(); ctx.moveTo(hx, b.padT); ctx.lineTo(hx, H - b.padB); ctx.stroke();
       ctx.fillStyle = '#3b82f6'; ctx.beginPath(); ctx.arc(hx, s.Y(Math.max(0, Math.min(100, pt.trlPct))), 2.5, 0, 6.2832); ctx.fill();
       ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.arc(hx, s.Y(Math.max(0, Math.min(100, pt.carPct))), 3, 0, 6.2832); ctx.fill();
+      var away = pt.mode === 'DRIVE' ? '  · driving' : pt.mode === 'SC' ? '  · supercharging' : '';
       drawTooltip(ctx, hx, b.padT + 3, [
-        { text: UI.minToHHMM(pt.min), color: '#9aa3b2' },
+        { text: UI.minToHHMM(pt.min) + away, color: pt.mode === 'DRIVE' ? '#eab308' : '#9aa3b2' },
         { text: 'Plaid ' + Math.round(pt.carPct) + '%  (' + Math.round(pt.carPct / 100 * p.capacityKwh) + ' kWh)', color: '#22c55e' },
         { text: 'Trailer ' + Math.round(pt.trlPct) + '%', color: '#3b82f6' }
       ], b);
@@ -632,11 +660,44 @@ var UI = (function () {
     canvas.__draw = { redraw: function (hx) { drawTimeline(canvas, p, result, opts, hx); } };
   }
 
+  function syncExclusive() {
+    // Supercharge and the 1pm session are mutually exclusive: lock the 1pm box off when supercharging.
+    var sc = document.getElementById('supercharge'), s4 = document.getElementById('runS4');
+    if (!sc || !s4) return;
+    if (sc.checked) { s4.checked = false; s4.disabled = true; } else { s4.disabled = false; }
+  }
+
+  function renderSessions(p, result) {
+    var el = document.getElementById('sessions');
+    var sched = Sim.buildSchedule(p);
+    var reasonByIdx = {};
+    result.metrics.skippedSessions.forEach(function (s) { reasonByIdx[s.index] = s.reason; });
+    var tl = result.timeline;
+    function at(min, key) {
+      var i = min - tl[0].min; if (i < 0) i = 0; if (i > tl.length - 1) i = tl.length - 1;
+      return Math.round(tl[i][key]) + '%';
+    }
+    var rows = sched.map(function (s) {
+      var reason = reasonByIdx[s.index];
+      var status = reason === 'supercharge' ? 'Supercharge' : (reason === 'skip' ? 'Skipped' : 'Run');
+      return '<tr' + (reason ? ' class="skipped"' : '') + '>' +
+        '<td>' + UI.minToHHMM(s.startMin) + '</td><td>' + status + '</td>' +
+        '<td>' + at(s.startMin, 'carPct') + ' → ' + at(s.endMin, 'carPct') + '</td>' +
+        '<td>' + at(s.startMin, 'trlPct') + ' → ' + at(s.endMin, 'trlPct') + '</td></tr>';
+    }).join('');
+    el.innerHTML = '<section class="panel"><h2>Per-session state of charge</h2>' +
+      '<table class="sessions"><thead><tr><th>Session</th><th>Status</th>' +
+      '<th>Plaid (start → end)</th><th>Trailer (start → end)</th></tr></thead><tbody>' + rows + '</tbody></table></section>';
+  }
+
   function render() {
+    syncExclusive();
     var values = currentValues();
     saveValues(values); // persist so a refresh restores the inputs
     var p = UI.readParams(values);
-    renderResult(p, Sim.simulate(p));
+    var result = Sim.simulate(p);
+    renderResult(p, result);
+    renderSessions(p, result);
   }
 
   window.__render = render; // exposed for manual debugging

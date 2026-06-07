@@ -16,49 +16,53 @@ function loadUI() {
   const ctx = { document: undefined, window: {} };
   vm.createContext(ctx);
   vm.runInContext(eng, ctx);
-  // The bootstrap IIFE early-returns when `document` is undefined, so loading is safe.
-  vm.runInContext(src, ctx);
+  vm.runInContext(src, ctx); // bootstrap IIFE early-returns when document is undefined
   return ctx.UI;
 }
 
-test('layout shell has the input bar and a single result panel (no 3-card / overlay)', () => {
+test('layout shell has the input bar, single result panel, and sessions table', () => {
   assert.ok(/id="inputs"/.test(html));
   assert.ok(/id="result"/.test(html));
+  assert.ok(/id="sessions"/.test(html));
   assert.ok(!/id="cards"/.test(html));
   assert.ok(!/id="overlay"/.test(html));
 });
 
 test('UI_FIELDS ids are unique', () => {
-  const UI = loadUI();
-  const ids = UI.UI_FIELDS.map(f => f.id);
+  const ids = loadUI().UI_FIELDS.map(f => f.id);
   assert.equal(new Set(ids).size, ids.length);
 });
 
-test('UI_FIELDS includes the supercharge toggle and 7 skip checkboxes', () => {
+test('UI_FIELDS includes supercharge, min-trailer-SoC, and 7 "run session" checkboxes', () => {
   const UI = loadUI();
-  const checks = UI.UI_FIELDS.filter(f => f.kind === 'check').map(f => f.id);
-  assert.ok(checks.indexOf('supercharge') !== -1);
-  for (let i = 1; i <= 7; i++) assert.ok(checks.indexOf('skipS' + i) !== -1, 'skipS' + i + ' present');
+  const ids = UI.UI_FIELDS.map(f => f.id);
+  assert.ok(ids.indexOf('supercharge') !== -1);
+  assert.ok(ids.indexOf('minTrailerSocPct') !== -1);
+  for (let i = 1; i <= 7; i++) assert.ok(ids.indexOf('runS' + i) !== -1, 'runS' + i + ' present');
+  // defaults: supercharge on; all sessions checked except 1pm (runS4)
+  const def = id => UI.UI_FIELDS.find(f => f.id === id).default;
+  assert.equal(def('supercharge'), true);
+  assert.equal(def('runS4'), false); // 1pm unchecked
+  [1, 2, 3, 5, 6, 7].forEach(i => assert.equal(def('runS' + i), true));
 });
 
 test('readParams(default form values) deep-equals engine defaultParams', () => {
   const UI = loadUI();
   const Sim = loadSim();
   const values = {};
-  UI.UI_FIELDS.forEach(f => { values[f.id] = String(f.default); }); // String(false) -> 'false'
+  UI.UI_FIELDS.forEach(f => { values[f.id] = String(f.default); });
   assert.deepEqual(UI.readParams(values), Sim.defaultParams());
 });
 
-test('readParams parses checkbox values (boolean or string)', () => {
+test('a "run session" checkbox maps (inverted) to the engine skip flag', () => {
   const UI = loadUI();
   const values = {};
   UI.UI_FIELDS.forEach(f => { values[f.id] = String(f.default); });
-  values.supercharge = true;   // checkbox .checked is a boolean in the live UI
-  values.skipS4 = 'true';      // localStorage may round-trip it as a string
+  values.runS5 = false;        // unchecking "run 2pm" -> skip it
+  values.runS6 = 'true';       // checked -> run it
   const p = UI.readParams(values);
-  assert.equal(p.supercharge, true);
-  assert.equal(p.skipS4, true);
-  assert.equal(p.skipS1, false);
+  assert.equal(p.skipS5, true);
+  assert.equal(p.skipS6, false);
 });
 
 test('hhmmToMin / minToHHMM round-trip', () => {
@@ -80,20 +84,19 @@ test('formatMetrics returns labeled rows incl. fuel, min SoC, sessions run', () 
   rows.forEach(r => { assert.equal(typeof r.value, 'string'); });
 });
 
-test('formatMetrics adds supercharge + skipped rows when supercharging', () => {
+test('formatMetrics adds supercharge + skipped rows when supercharging (default)', () => {
   const UI = loadUI();
   const Sim = loadSim();
-  const p = Sim.defaultParams(); p.supercharge = true;
-  const labels = UI.formatMetrics(Sim.simulate(p).metrics).map(r => r.label.toLowerCase());
+  const labels = UI.formatMetrics(Sim.simulate(Sim.defaultParams()).metrics).map(r => r.label.toLowerCase());
   assert.ok(labels.some(l => l.includes('supercharged')));
   assert.ok(labels.some(l => l.includes('back')));
   assert.ok(labels.some(l => l.includes('skipped')));
 });
 
-test('formatMetrics shows a skipped row when a session is skipped', () => {
+test('formatMetrics shows a skipped row when a session is manually skipped', () => {
   const UI = loadUI();
   const Sim = loadSim();
-  const p = Sim.defaultParams(); p.skipS4 = true;
+  const p = Sim.defaultParams(); p.supercharge = false; p.skipS4 = false; p.skipS2 = true;
   const labels = UI.formatMetrics(Sim.simulate(p).metrics).map(r => r.label.toLowerCase());
   assert.ok(labels.some(l => l.includes('skipped')));
 });

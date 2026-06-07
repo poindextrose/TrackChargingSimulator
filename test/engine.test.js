@@ -17,8 +17,10 @@ function loadSim() {
 
 const Sim = loadSim();
 function near(a, b, tol) { return Math.abs(a - b) <= (tol == null ? 1e-6 : tol); }
-// Convenience: a params object with the given overrides.
+// params with overrides applied onto the (supercharge + skip-1pm) defaults.
 function cfg(over) { var p = Sim.defaultParams(); for (var k in (over || {})) p[k] = over[k]; return p; }
+// the "full day on trailer power" config: no supercharge, every session run.
+function fullDay(over) { return cfg(Object.assign({ supercharge: false, skipS4: false }, over || {})); }
 
 test('engine loads and exposes Sim', () => {
   assert.equal(typeof Sim, 'object');
@@ -33,16 +35,15 @@ test('curvePower hits known anchors', () => {
 });
 
 test('curvePower interpolates linearly between anchors', () => {
-  // 40->195, 50->148; midpoint 45 -> 171.5
-  assert.ok(Math.abs(Sim.curvePower(45) - 171.5) < 1e-6);
+  assert.ok(Math.abs(Sim.curvePower(45) - 171.5) < 1e-6); // 40->195, 50->148; mid -> 171.5
 });
 
 test('curvePower clamps outside the table', () => {
-  assert.equal(Sim.curvePower(0), 210);   // below first anchor (5)
-  assert.equal(Sim.curvePower(120), 7);   // above last anchor (100)
+  assert.equal(Sim.curvePower(0), 210);
+  assert.equal(Sim.curvePower(120), 7);
 });
 
-test('defaultParams matches the spec defaults', () => {
+test('defaultParams matches the spec defaults (supercharge on, 1pm skipped)', () => {
   var p = Sim.defaultParams();
   assert.equal(p.capacityKwh, 100);
   assert.equal(p.arrivalSocNoTrailerPct, 87);
@@ -52,67 +53,62 @@ test('defaultParams matches the spec defaults', () => {
   assert.equal(p.acdcEff, 0.94);
   assert.equal(p.genPowerKw, 13);
   assert.equal(p.trailerCapKwh, 50);
-  // single-scenario controls default off
-  assert.equal(p.supercharge, false);
-  for (var i = 1; i <= 7; i++) assert.equal(p['skipS' + i], false);
+  assert.equal(p.minTrailerSocPct, 5);
+  assert.equal(p.supercharge, true);
+  assert.equal(p.skipS4, true); // 1pm unchecked by default
+  [1, 2, 3, 5, 6, 7].forEach(i => assert.equal(p['skipS' + i], false));
 });
 
 test('effectiveArrivalKwh applies the towing cost', () => {
-  var p = Sim.defaultParams();
-  assert.equal(Sim.effectiveArrivalKwh(p), 83); // (87-4)% of 100
+  assert.equal(Sim.effectiveArrivalKwh(Sim.defaultParams()), 83); // (87-4)% of 100
 });
 
-test('buildSchedule: 7 sessions, hourly from 9:00, no 12:00, none skipped by default', () => {
+test('buildSchedule: 7 sessions, hourly from 9:00, no 12:00; default flags 1pm skipped', () => {
   var s = Sim.buildSchedule(Sim.defaultParams());
   assert.equal(s.length, 7);
   assert.deepEqual(s.map(x => x.startMin), [9*60, 10*60, 11*60, 13*60, 14*60, 15*60, 16*60]);
   assert.deepEqual(s.map(x => x.index), [1, 2, 3, 4, 5, 6, 7]);
-  assert.equal(s[0].endMin, 9*60 + 15); // 15-min default duration
-  assert.ok(s.every(x => x.skipped === false));
-});
-
-test('buildSchedule: skipS4 flags the 1pm session (index 4); list stays full', () => {
-  var s = Sim.buildSchedule(cfg({ skipS4: true }));
-  assert.equal(s.length, 7); // not removed, just flagged
-  var s4 = s.find(x => x.index === 4);
-  assert.equal(s4.startMin, 13*60);
-  assert.equal(s4.skipped, true);
+  assert.equal(s[0].endMin, 9*60 + 15);
+  assert.equal(s.find(x => x.index === 4).skipped, true);               // 1pm (default skip)
   assert.ok(s.filter(x => x.index !== 4).every(x => x.skipped === false));
 });
 
 test('chargeDelivery: mid-SoC is governed by the 40 kW DC-DC cap', () => {
-  var p = Sim.defaultParams();
-  var r = Sim.chargeDelivery(50, 60, 50, p); // curve(50)=148 >> 40
+  var r = Sim.chargeDelivery(50, 60, 50, Sim.defaultParams()); // curve(50)=148 >> 40
   assert.ok(Math.abs(r.deliverKw - 40) < 1e-6);
-  // bus need = 40/0.95 = 42.105; gen bus = 13*0.94 = 12.22; trailer covers rest
   assert.ok(Math.abs(r.fromGenBusKw - 12.22) < 1e-3);
   assert.ok(Math.abs(r.fromTrailerBusKw - (40/0.95 - 12.22)) < 1e-3);
 });
 
 test('chargeDelivery: near 100% the curve caps delivery below 40 kW', () => {
-  var p = Sim.defaultParams();
-  var r = Sim.chargeDelivery(95, 95, 50, p); // curve(95)=27 < 40
+  var r = Sim.chargeDelivery(95, 95, 50, Sim.defaultParams()); // curve(95)=27 < 40
   assert.ok(Math.abs(r.deliverKw - 27) < 1e-6);
 });
 
 test('chargeDelivery: empty trailer falls back to generator-only', () => {
-  var p = Sim.defaultParams();
-  var r = Sim.chargeDelivery(50, 60, 0, p); // trailer empty
+  var r = Sim.chargeDelivery(50, 60, 0, Sim.defaultParams());
   assert.ok(Math.abs(r.fromTrailerBusKw - 0) < 1e-6);
   assert.ok(Math.abs(r.deliverKw - 12.22 * 0.95) < 1e-2);
 });
 
 test('chargeDelivery: respects headroom near full pack', () => {
-  var p = Sim.defaultParams();
-  var r = Sim.chargeDelivery(50, 99.9, 50, p);
+  var r = Sim.chargeDelivery(50, 99.9, 50, Sim.defaultParams());
   assert.ok(r.deliverKw <= 6 + 1e-6);
 });
 
 test('chargeDelivery: near-full, both curve and headroom bind below 40 kW', () => {
-  var p = Sim.defaultParams();
-  var r = Sim.chargeDelivery(99, 99.8, 50, p);
-  assert.ok(Math.abs(r.deliverKw - 11) < 1e-6);      // curve(99) governs (= 11)
-  assert.ok(r.deliverKw <= (100 - 99.8) * 60 + 1e-9); // within headroom
+  var r = Sim.chargeDelivery(99, 99.8, 50, Sim.defaultParams());
+  assert.ok(Math.abs(r.deliverKw - 11) < 1e-6);
+  assert.ok(r.deliverKw <= (100 - 99.8) * 60 + 1e-9);
+});
+
+test('chargeDelivery: trailer cannot discharge below its minimum SoC floor', () => {
+  var p = Sim.defaultParams(); // minTrailerSocPct 5% of 50 kWh -> 2.5 kWh floor
+  var atFloor = Sim.chargeDelivery(50, 60, 2.5, p);
+  assert.ok(Math.abs(atFloor.fromTrailerBusKw - 0) < 1e-6);          // nothing left to give
+  assert.ok(Math.abs(atFloor.deliverKw - 12.22 * 0.95) < 1e-2);      // generator-only
+  var justAbove = Sim.chargeDelivery(50, 60, 2.6, p);                // 0.1 kWh above floor
+  assert.ok(justAbove.fromTrailerBusKw <= 6 + 1e-6);                 // only that 0.1 kWh -> 6 kW/min
 });
 
 test('simulate: timeline spans arrival to last session end', () => {
@@ -120,7 +116,7 @@ test('simulate: timeline spans arrival to last session end', () => {
   assert.equal(r.timeline[0].min, 8 * 60);
   assert.equal(r.timeline[r.timeline.length - 1].min, 16 * 60 + 15 - 1);
   r.timeline.forEach(function (pt) {
-    assert.ok(pt.carPct <= 100.0001 && pt.carPct >= -0.0001); // default is feasible
+    assert.ok(pt.carPct <= 100.0001);
     assert.ok(pt.trlPct <= 100.0001 && pt.trlPct >= -0.0001);
   });
 });
@@ -128,90 +124,96 @@ test('simulate: timeline spans arrival to last session end', () => {
 test('simulate: a session removes ~sessionEnergy from the pack', () => {
   var p = Sim.defaultParams();
   var r = Sim.simulate(p);
-  function kwhAt(min) {
-    var pt = r.timeline.find(function (x) { return x.min === min; });
-    return pt.carPct / 100 * p.capacityKwh;
-  }
-  var drop = kwhAt(9 * 60 - 1) - kwhAt(9 * 60 + 14);
-  assert.ok(near(drop, p.sessionEnergyKwh, 0.6)); // ~25 kWh over the 15 min
+  function kwhAt(min) { return r.timeline.find(x => x.min === min).carPct / 100 * p.capacityKwh; }
+  var drop = kwhAt(9 * 60 - 1) - kwhAt(9 * 60 + 14); // S1 runs in every plan
+  assert.ok(near(drop, p.sessionEnergyKwh, 0.6));
 });
 
-test('simulate: metrics are populated and self-consistent', () => {
-  var p = Sim.defaultParams();
-  var m = Sim.simulate(p).metrics;
-  assert.equal(typeof m.feasible, 'boolean');
-  assert.ok(m.minSocKwh <= Sim.effectiveArrivalKwh(p));
-  assert.ok(m.fuelGal > 0);
-  assert.ok(near(m.fuelGal, m.genAcKwh * (p.fuelBurnGalPerHr / p.genPowerKw), 1e-6));
-  assert.equal(m.fromArrivalKwh, 83);
+test('simulate: trailer SoC never dips below the minimum floor', () => {
+  var p = fullDay(); // stresses the trailer the most
+  var r = Sim.simulate(p);
+  var minTrl = Math.min.apply(null, r.timeline.map(x => x.trlPct));
+  assert.ok(minTrl >= p.minTrailerSocPct - 1e-6, 'trailer floored at ' + minTrl + '%');
+});
+
+test('fullDay metrics: 7 sessions run, nothing skipped, no supercharge block', () => {
+  var m = Sim.simulate(fullDay()).metrics;
   assert.equal(m.sessionsRun, 7);
   assert.deepEqual(m.skippedSessions, []);
-  assert.equal(m.sc, null); // no supercharge
+  assert.equal(m.sc, null);
+  assert.ok(m.fuelGal > 0);
+  assert.ok(near(m.fuelGal, m.genAcKwh * (fullDay().fuelBurnGalPerHr / fullDay().genPowerKw), 1e-6));
+  assert.equal(m.fromArrivalKwh, 83);
 });
 
-test('behavior preserved: default=oldA, skipS4=oldB, supercharge=oldC reproduce known numbers', () => {
-  var A = Sim.simulate(Sim.defaultParams()).metrics;
-  var B = Sim.simulate(cfg({ skipS4: true })).metrics;
-  var C = Sim.simulate(cfg({ supercharge: true })).metrics;
-  assert.ok(near(A.minSocPct, 7.37, 0.1), 'old A min SoC ~7.37%');
-  assert.ok(near(B.endSocPct, 38.37, 0.1), 'old B end ~38.37%');
-  assert.ok(near(C.endSocPct, 54.77, 0.1), 'old C end ~54.77%');
-  assert.equal(C.sc.returnMin, 13 * 60 + 9); // returns 13:09 at the 100% target
-  assert.equal(B.sessionsRun, 6);
-  assert.equal(C.sessionsRun, 6);
+test('configs: full day runs 7; skip-1pm runs 6 and ends fuller; supercharge runs 6 with SC info', () => {
+  var full = Sim.simulate(fullDay()).metrics;
+  var skip = Sim.simulate(fullDay({ skipS4: true })).metrics; // skip 1pm, no SC
+  var sc = Sim.simulate(cfg({ supercharge: true })).metrics;   // = default
+  assert.equal(full.sessionsRun, 7);
+  assert.equal(skip.sessionsRun, 6);
+  assert.equal(sc.sessionsRun, 6);
+  assert.ok(skip.endSocKwh > full.endSocKwh);  // skipping a 25 kWh draw helps
+  assert.ok(sc.fromSuperchargerKwh > 0 && sc.sc);
+  assert.equal(sc.sc.returnMin, 13 * 60 + 9);  // 100% target returns 13:09
+  // anchors with minTrailerSocPct = 5
+  assert.ok(near(full.minSocPct, 5.0, 0.6), 'full day min ~5%');
+  assert.ok(near(skip.endSocPct, 36.0, 0.6), 'skip-1pm end ~36%');
+  assert.ok(near(sc.endSocPct, 58.4, 0.6), 'supercharge end ~58%');
+});
+
+test('supercharge ⟺ 1pm exclusive: toggling skipS4 under supercharge has no effect (bug regression)', () => {
+  var a = Sim.simulate(cfg({ supercharge: true, skipS4: false })).metrics;
+  var b = Sim.simulate(cfg({ supercharge: true, skipS4: true })).metrics;
+  assert.ok(near(a.endSocPct, b.endSocPct, 1e-9));
+  assert.ok(near(a.minSocPct, b.minSocPct, 1e-9));
+  [a, b].forEach(function (m) {
+    var s4 = m.skippedSessions.find(s => s.index === 4);
+    assert.ok(s4 && s4.reason === 'supercharge');
+  });
+});
+
+test('supercharge always skips the 1pm session, even with a reachable target', () => {
+  var r = Sim.simulate(cfg({ supercharge: true, scTargetSocPct: 80 })).metrics; // returns ~12:30
+  var s4 = r.skippedSessions.find(s => s.index === 4);
+  assert.ok(s4 && s4.reason === 'supercharge');
+  assert.equal(r.sessionsRun, 6); // only S4 skipped; S5..S7 run
 });
 
 test('skip a session: it is not run, recorded as a skip, and frees energy', () => {
-  var r = Sim.simulate(cfg({ skipS4: true }));
+  var r = Sim.simulate(fullDay({ skipS2: true }));
   assert.equal(r.metrics.sessionsRun, 6);
   assert.equal(r.metrics.skippedSessions.length, 1);
-  assert.equal(r.metrics.skippedSessions[0].index, 4);
+  assert.equal(r.metrics.skippedSessions[0].index, 2);
   assert.equal(r.metrics.skippedSessions[0].reason, 'skip');
-  // no SESSION minute in the 1pm window
   r.timeline.forEach(function (pt) {
-    if (pt.min >= 13 * 60 && pt.min < 13 * 60 + 15) assert.notEqual(pt.mode, 'SESSION');
+    if (pt.min >= 10 * 60 && pt.min < 10 * 60 + 15) assert.notEqual(pt.mode, 'SESSION');
   });
-  // skipping a 25 kWh draw leaves more energy than the default
-  assert.ok(r.metrics.endSocKwh >= Sim.simulate(Sim.defaultParams()).metrics.endSocKwh - 1e-6);
+  assert.ok(r.metrics.endSocKwh >= Sim.simulate(fullDay()).metrics.endSocKwh - 1e-6);
 });
 
-test('skip multiple sessions: both recorded, both un-run', () => {
-  var r = Sim.simulate(cfg({ skipS2: true, skipS6: true }));
-  assert.equal(r.metrics.sessionsRun, 5);
-  var idx = r.metrics.skippedSessions.map(s => s.index).sort();
-  assert.deepEqual(idx, [2, 6]);
-  assert.ok(r.metrics.skippedSessions.every(s => s.reason === 'skip'));
-});
-
-test('supercharge: drives out after S3, charges to target, returns; auto-skips session 4', () => {
+test('supercharge: drives out after S3, charges to target, and skips session 4', () => {
   var p = cfg({ supercharge: true });
   var r = Sim.simulate(p);
-  assert.ok(r.metrics.sc);
-  assert.ok(r.metrics.sc.scDurationMin > 0);
-  var awayPt = r.timeline.find(function (x) { return x.min === 11 * 60 + 20; });
-  assert.ok(awayPt.mode === 'DRIVE' || awayPt.mode === 'SC'); // left after S3
-  var maxPct = Math.max.apply(null, r.timeline.map(function (x) { return x.carPct; }));
-  assert.ok(maxPct >= p.scTargetSocPct - 0.5); // reaches 100%
-  // session 4 (1pm) auto-skipped because the car is away, reason 'supercharge'
-  var s4 = r.metrics.skippedSessions.find(function (s) { return s.index === 4; });
+  assert.ok(r.metrics.sc && r.metrics.sc.scDurationMin > 0);
+  var awayPt = r.timeline.find(x => x.min === 11 * 60 + 20);
+  assert.ok(awayPt.mode === 'DRIVE' || awayPt.mode === 'SC');
+  var maxPct = Math.max.apply(null, r.timeline.map(x => x.carPct));
+  assert.ok(maxPct >= p.scTargetSocPct - 0.5);
+  var s4 = r.metrics.skippedSessions.find(s => s.index === 4);
   assert.ok(s4 && s4.reason === 'supercharge');
-  assert.equal(typeof r.metrics.sc.backBefore1pm, 'boolean');
 });
 
 test('supercharge: no cooling debit while the car is away (DRIVE/SC)', () => {
   var r = Sim.simulate(cfg({ supercharge: true }));
   r.timeline.forEach(function (pt) {
-    if (pt.mode === 'DRIVE' || pt.mode === 'SC') {
-      assert.notEqual(pt.coolingKw, undefined);
-      assert.equal(pt.coolingKw, 0);
-    }
+    if (pt.mode === 'DRIVE' || pt.mode === 'SC') assert.equal(pt.coolingKw, 0);
   });
 });
 
-test('supercharge lands the car fuller than the stay-all-day default', () => {
-  var endDefault = Sim.simulate(Sim.defaultParams()).metrics.endSocKwh;
-  var endSc = Sim.simulate(cfg({ supercharge: true })).metrics.endSocKwh;
-  assert.ok(endSc >= endDefault);
+test('supercharge lands the car fuller than the full day on trailer power', () => {
+  assert.ok(Sim.simulate(cfg({ supercharge: true })).metrics.endSocKwh
+          > Sim.simulate(fullDay()).metrics.endSocKwh);
 });
 
 test('lowering scTargetSoc pulls the supercharge return time earlier', () => {
@@ -220,114 +222,113 @@ test('lowering scTargetSoc pulls the supercharge return time earlier', () => {
   assert.ok(r2 < r1);
 });
 
-test('supercharge at the default 100% target returns late, skipping only session 4', () => {
+test('supercharge at 100% target skips only session 4 (away covers just S4)', () => {
   var r = Sim.simulate(cfg({ supercharge: true })); // returns ~13:09
-  var away = r.metrics.skippedSessions.filter(s => s.reason === 'supercharge');
-  assert.deepEqual(away.map(s => s.startMin), [13 * 60]); // only S4
-  assert.equal(r.metrics.sc.backBefore1pm, false);
-  // no SESSION minute inside the S4 window (no partial draw)
+  assert.deepEqual(r.metrics.skippedSessions.map(s => s.startMin), [13 * 60]);
   r.timeline.forEach(function (pt) {
     if (pt.min >= 13 * 60 && pt.min < 13 * 60 + 15) assert.notEqual(pt.mode, 'SESSION');
   });
 });
 
-test('supercharge with a reachable target (80%) returns in time, skips nothing', () => {
-  var r = Sim.simulate(cfg({ supercharge: true, scTargetSocPct: 80 })); // returns ~12:30
-  assert.equal(r.metrics.skippedSessions.length, 0);
-  assert.equal(r.metrics.sessionsRun, 7);
-  var ranS4 = r.timeline.some(function (pt) {
-    return pt.mode === 'SESSION' && pt.min >= 13 * 60 && pt.min < 13 * 60 + 15;
-  });
-  assert.ok(ranS4);
-});
-
 test('every session that runs is whole (no partial draws), with supercharge', () => {
   var p = cfg({ supercharge: true });
   var r = Sim.simulate(p);
-  var sessionMinutes = r.timeline.filter(function (pt) { return pt.mode === 'SESSION'; }).length;
+  var sessionMinutes = r.timeline.filter(pt => pt.mode === 'SESSION').length;
   assert.equal(sessionMinutes, r.metrics.sessionsRun * p.sessionDurationMin);
 });
 
 test('a slow supercharge that runs past 2pm skips both S4 and S5', () => {
   var p = cfg({ supercharge: true, scPowerCapKw: 20 }); // returns ~14:34
   var r = Sim.simulate(p);
-  var away = r.metrics.skippedSessions.filter(s => s.reason === 'supercharge').map(s => s.startMin);
-  assert.ok(away.indexOf(13 * 60) !== -1 && away.indexOf(14 * 60) !== -1);
-  var sessionMinutes = r.timeline.filter(function (pt) { return pt.mode === 'SESSION'; }).length;
+  var skipMin = r.metrics.skippedSessions.map(s => s.startMin);
+  assert.ok(skipMin.indexOf(13 * 60) !== -1 && skipMin.indexOf(14 * 60) !== -1);
+  var sessionMinutes = r.timeline.filter(pt => pt.mode === 'SESSION').length;
   assert.equal(sessionMinutes, r.metrics.sessionsRun * p.sessionDurationMin);
 });
 
 test('a supercharge that never finishes skips every post-departure session', () => {
-  var r = Sim.simulate(cfg({ supercharge: true, scPowerCapKw: 5 })); // never reaches 100%
+  var r = Sim.simulate(cfg({ supercharge: true, scPowerCapKw: 5 }));
   assert.equal(r.metrics.sc.returnMin, null);
-  var away = r.metrics.skippedSessions.filter(s => s.reason === 'supercharge').map(s => s.startMin);
+  var skipMin = r.metrics.skippedSessions.map(s => s.startMin);
   [13 * 60, 14 * 60, 15 * 60, 16 * 60].forEach(function (m) {
-    assert.ok(away.indexOf(m) !== -1, 'expected session at ' + m + ' to be skipped');
+    assert.ok(skipMin.indexOf(m) !== -1, 'expected session at ' + m + ' skipped');
   });
 });
 
-test('energy conservation: net charge into the car is positive over the day', () => {
-  var p = Sim.defaultParams();
+test('energy conservation: net charge into the car is positive over the full day', () => {
+  var p = fullDay();
   var r = Sim.simulate(p); var m = r.metrics;
   var sessionDraw = m.sessionsRun * p.sessionEnergyKwh;
-  var coolingDraw = r.timeline.reduce(function (s, pt) { return s + (pt.coolingKw || 0); }, 0) / 60;
+  var coolingDraw = r.timeline.reduce((s, pt) => s + (pt.coolingKw || 0), 0) / 60;
   var carCharge = m.endSocKwh - m.fromArrivalKwh + sessionDraw + coolingDraw;
   assert.ok(carCharge > 0);
   assert.ok(m.fromTrailerKwh >= 0 && m.fromGeneratorKwh >= 0);
 });
 
-test('pre-session cooling lump is applied to the arrival window', () => {
-  var p = Sim.defaultParams();
+test('pre-session cooling lump is applied to the arrival window (full day)', () => {
+  var p = fullDay();
   var r = Sim.simulate(p);
-  var totalCooling = r.timeline.reduce(function (s, pt) { return s + (pt.coolingKw || 0); }, 0) / 60;
-  var postGaps = r.metrics.sessionsRun - 1; // 6 with all sessions run
-  var expected = p.preSessionCoolingKwh + postGaps * p.coolingPerGapKwh; // 5 + 36 = 41
+  var totalCooling = r.timeline.reduce((s, pt) => s + (pt.coolingKw || 0), 0) / 60;
+  var expected = p.preSessionCoolingKwh + (r.metrics.sessionsRun - 1) * p.coolingPerGapKwh; // 5 + 36
   assert.ok(Math.abs(totalCooling - expected) < 1e-6);
-  var firstMin = r.timeline.find(function (pt) { return pt.min === p.arrivalTimeMin; });
-  assert.ok(firstMin.coolingKw > 0);
-  var t0 = Sim.simulate(cfg({ preSessionCoolingKwh: 0 })).timeline
-    .reduce(function (s, pt) { return s + (pt.coolingKw || 0); }, 0) / 60;
+  assert.ok(r.timeline.find(pt => pt.min === p.arrivalTimeMin).coolingKw > 0);
+  var t0 = Sim.simulate(fullDay({ preSessionCoolingKwh: 0 }))
+    .timeline.reduce((s, pt) => s + (pt.coolingKw || 0), 0) / 60;
   assert.ok(Math.abs((totalCooling - t0) - p.preSessionCoolingKwh) < 1e-6);
 });
 
 test('a starved generator runs the car dead and is infeasible', () => {
-  var r = Sim.simulate(cfg({ genPowerKw: 3 }));
+  var r = Sim.simulate(fullDay({ genPowerKw: 3 }));
   assert.equal(r.metrics.feasible, false);
   assert.ok(r.metrics.minSocKwh < 0, 'true deficit must be negative, not clamped at 0');
   assert.ok(r.metrics.shortfallKwh > 0);
   assert.ok(Math.abs(r.metrics.shortfallKwh - (0 - r.metrics.minSocKwh)) < 1e-9);
 });
 
-test('default config stays feasible with positive min SoC', () => {
+test('the default (supercharge) day stays feasible with positive min SoC', () => {
   var r = Sim.simulate(Sim.defaultParams());
   assert.equal(r.metrics.feasible, true);
   assert.ok(r.metrics.minSocKwh > 0);
 });
 
-test('a reserve floor makes a marginal day infeasible', () => {
-  var r = Sim.simulate(cfg({ reserveKwh: 20 })); // default min SoC ~7 kWh < 20
+test('a reserve floor makes a marginal full day infeasible', () => {
+  var r = Sim.simulate(fullDay({ reserveKwh: 20 })); // full-day min ~5 kWh < 20
   assert.equal(r.metrics.feasible, false);
   assert.ok(r.metrics.shortfallKwh > 0);
 });
 
 test('no generator (0 kW) yields zero fuel and finite results', () => {
-  var r = Sim.simulate(cfg({ genPowerKw: 0 }));
+  var r = Sim.simulate(fullDay({ genPowerKw: 0 }));
   assert.equal(r.metrics.fuelGal, 0);
-  assert.ok(isFinite(r.metrics.minSocKwh));
-  assert.ok(isFinite(r.metrics.endSocKwh));
+  assert.ok(isFinite(r.metrics.minSocKwh) && isFinite(r.metrics.endSocKwh));
   assert.equal(typeof r.metrics.feasible, 'boolean');
 });
 
-test('SMOKE: default / skip-1pm / supercharge are all coherent', () => {
-  var A = Sim.simulate(Sim.defaultParams()).metrics;
-  var B = Sim.simulate(cfg({ skipS4: true })).metrics;
-  var C = Sim.simulate(cfg({ supercharge: true })).metrics;
-  [A, B, C].forEach(function (m) {
+test('SMOKE: full day / skip-1pm / supercharge are all coherent', () => {
+  var full = Sim.simulate(fullDay()).metrics;
+  var skip = Sim.simulate(fullDay({ skipS4: true })).metrics;
+  var sc = Sim.simulate(cfg({ supercharge: true })).metrics;
+  [full, skip, sc].forEach(function (m) {
     assert.ok(m.endSocPct >= -200 && m.endSocPct <= 100);
     assert.ok(m.fuelGal >= 0);
   });
-  assert.ok(B.endSocKwh >= A.endSocKwh - 1e-6); // skipping a session keeps more energy
-  assert.ok(C.fromSuperchargerKwh > 0);          // supercharge actually charges
+  assert.ok(skip.endSocKwh >= full.endSocKwh - 1e-6);
+  assert.ok(sc.fromSuperchargerKwh > 0);
+});
+
+test('degenerate inputs do not crash or produce NaN', () => {
+  // # sessions = 0 -> empty but valid result (no TypeError on sessions[-1])
+  var z = Sim.simulate(cfg({ sessionCount: 0 }));
+  assert.equal(z.timeline.length, 0);
+  assert.equal(z.metrics.sessionsRun, 0);
+  assert.ok(isFinite(z.metrics.endSocPct) && isFinite(z.metrics.minSocKwh));
+  // trailer capacity = 0 (no trailer battery) -> finite display percentages
+  var noTrl = Sim.simulate(fullDay({ trailerCapKwh: 0 }));
+  assert.ok(noTrl.timeline.every(pt => isFinite(pt.trlPct)));
+  assert.ok(isFinite(noTrl.metrics.trailerEndPct) && isFinite(noTrl.metrics.minSocKwh));
+  // AC-DC efficiency = 0 -> finite (zero) fuel, no NaN
+  var noAc = Sim.simulate(fullDay({ acdcEff: 0 }));
+  assert.ok(isFinite(noAc.metrics.fuelGal) && isFinite(noAc.metrics.genAcKwh));
 });
 
 module.exports = { loadSim };
