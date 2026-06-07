@@ -422,6 +422,14 @@ var UI = (function () {
     { id: 'C', title: 'C · Supercharge during lunch', desc: 'Drive out after session 3, charge to target, drive back.' },
   ];
 
+  var STORAGE_KEY = 'tcs-params';
+  function saveValues(values) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(values)); } catch (e) { /* storage unavailable (private mode/quota) */ }
+  }
+  function loadValues() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch (e) { return {}; }
+  }
+
   function buildInputs() {
     var host = document.getElementById('inputs');
     var groups = {};
@@ -442,6 +450,11 @@ var UI = (function () {
     });
     html += '<button id="reset">Reset</button>';
     host.innerHTML = html;
+    // Overlay any saved values from a previous session (defaults stay for fields not stored).
+    var saved = loadValues();
+    UI.UI_FIELDS.forEach(function (f) {
+      if (saved[f.id] != null && saved[f.id] !== '') document.getElementById(f.id).value = saved[f.id];
+    });
     UI.UI_FIELDS.forEach(function (f) {
       document.getElementById(f.id).addEventListener('input', render);
     });
@@ -562,7 +575,9 @@ var UI = (function () {
   }
 
   function render() {
-    var p = UI.readParams(currentValues());
+    var values = currentValues();
+    saveValues(values); // persist so a refresh restores the inputs
+    var p = UI.readParams(values);
     var results = {};
     SCEN.forEach(function (scen) {
       results[scen.id] = Sim.simulate(p, scen.id);
