@@ -388,7 +388,9 @@ var UI = (function () {
     ];
     if (scenarioId === 'C' && m.c) {
       rows.push({ label: 'Supercharged', value: fmt(m.fromSuperchargerKwh, 0) + ' kWh in ' + fmt(m.c.scDurationMin || 0, 0) + ' min' });
-      rows.push({ label: 'Back at track', value: clock(m.c.returnMin) + (m.c.backBefore1pm ? '  ✓ before 1pm' : '  ✗ after 1pm') });
+      rows.push({ label: 'Back at track', value: m.c.returnMin != null
+        ? clock(m.c.returnMin) + (m.c.backBefore1pm ? '  ✓ before 1pm' : '  ✗ after 1pm')
+        : '— (never returned)' });
       var missed = m.c.missedSessions || [];
       rows.push({ label: 'Sessions missed', value: missed.length
         ? missed.map(function (s) { return clock(s.startMin); }).join(', ')
@@ -463,7 +465,7 @@ var UI = (function () {
     el.innerHTML = '<h2>' + scen.title + '</h2><div class="desc">' + scen.desc + '</div>' +
       badge + '<canvas id="chart' + scen.id + '" width="560" height="200"></canvas>' +
       '<ul class="metrics">' + rows + '</ul>';
-    return result; // chart drawn in Task 11
+    return result;
   }
 
   function sessionBands(p, scenarioId) {
@@ -515,11 +517,10 @@ var UI = (function () {
     line(function (pt) { return pt.carPct; }, '#22c55e', false);
   }
 
-  function drawOverlay(p, results) {
+  function drawOverlay(p, results, xMin, xMax) {
     var canvas = document.getElementById('overlay');
     var ctx = canvas.getContext('2d');
     var W = canvas.width, H = canvas.height;
-    var xMin = p.arrivalTimeMin, xMax = 16 * 60 + p.sessionDurationMin;
     var b = { w:W, h:H, padL:34, padR:10, padT:10, padB:20, xMin:xMin, xMax:xMax, yMin:0, yMax:100 };
     var sc = UI.chartScale(b);
     ctx.clearRect(0, 0, W, H);
@@ -544,12 +545,16 @@ var UI = (function () {
   }
 
   function drawAllCharts(p, results) {
-    var xMin = p.arrivalTimeMin, xMax = 16 * 60 + p.sessionDurationMin;
+    var xMin = p.arrivalTimeMin;
+    var xMax = Math.max.apply(null, ['A', 'B', 'C'].map(function (id) {
+      var tl = results[id].timeline;
+      return tl.length ? tl[tl.length - 1].min + 1 : xMin;
+    }));
     ['A', 'B', 'C'].forEach(function (id) {
       var cv = document.getElementById('chart' + id);
       if (cv) drawTimeline(cv, p, results[id], id, { xMin: xMin, xMax: xMax });
     });
-    drawOverlay(p, results);
+    drawOverlay(p, results, xMin, xMax);
   }
 
   function render() {
