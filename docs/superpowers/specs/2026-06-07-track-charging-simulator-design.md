@@ -168,7 +168,7 @@ const PLAID_V3_CURVE = [
   [40, 195], [50, 148], [60, 120], [70, 95], [80, 68],
   [90, 42], [95, 27], [100, 7],
 ];
-// Below 5%: clamp to ~180 kW. Linear-interpolate between anchors.
+// Below 5%: clamp to the 5% anchor (210 kW). Linear-interpolate between anchors.
 ```
 
 Sanity anchors from sources: peak 250 kW held ~10–33%; ~148 kW @ 50%; ~68 kW @ 80%; single-digit kW near 100%; 10→80% ≈ 28 min; 0→100% ≈ 60–80 min (the slow tail dominates). Interpolated mid-points (40/60/70/90%) are ±10%.

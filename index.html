@@ -102,7 +102,8 @@ var Sim = (function () {
       hourMin += 60;
     }
     if (scenarioId === 'B') {
-      return sessions.filter(function (s) { return s.startMin !== 13 * 60; });
+      var skipMin = (p.lunchSkipHour + 1) * 60;
+      return sessions.filter(function (s) { return s.startMin !== skipMin; });
     }
     return sessions;
   }

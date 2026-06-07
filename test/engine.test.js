@@ -22,8 +22,6 @@ test('engine loads and exposes Sim', () => {
   assert.equal(typeof Sim.simulate, 'function');
 });
 
-module.exports = { loadSim };
-
 test('curvePower hits known anchors', () => {
   assert.equal(Sim.curvePower(10), 250);
   assert.equal(Sim.curvePower(33), 250);
@@ -72,8 +70,11 @@ test('buildSchedule B: drops the 1pm session', () => {
   assert.ok(!s.some(x => x.startMin === 13*60));
 });
 
-test('buildSchedule C: keeps all 7 sessions', () => {
-  assert.equal(Sim.buildSchedule(Sim.defaultParams(), 'C').length, 7);
+test('buildSchedule C: identical session times to A (no session removed)', () => {
+  var a = Sim.buildSchedule(Sim.defaultParams(), 'A').map(function (s) { return s.startMin; });
+  var c = Sim.buildSchedule(Sim.defaultParams(), 'C').map(function (s) { return s.startMin; });
+  assert.deepEqual(c, a);
+  assert.equal(c.length, 7);
 });
 
 test('chargeDelivery: mid-SoC is governed by the 40 kW DC-DC cap', () => {
@@ -105,3 +106,13 @@ test('chargeDelivery: respects headroom near full pack', () => {
   var r = Sim.chargeDelivery(50, 99.9, 50, p);
   assert.ok(r.deliverKw <= 6 + 1e-6);
 });
+
+test('chargeDelivery: near-full, both curve and headroom bind below 40 kW', () => {
+  var p = Sim.defaultParams();
+  // SoC 99% -> curve ~11 kW; headroom (100-99.8)*60 = 12 kW; both < 40
+  var r = Sim.chargeDelivery(99, 99.8, 50, p);
+  assert.ok(Math.abs(r.deliverKw - 11) < 1e-6);      // curve(99) governs (= 11)
+  assert.ok(r.deliverKw <= (100 - 99.8) * 60 + 1e-9); // within headroom
+});
+
+module.exports = { loadSim };
