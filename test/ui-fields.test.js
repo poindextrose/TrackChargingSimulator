@@ -52,3 +52,25 @@ test('hhmmToMin / minToHHMM round-trip', () => {
   assert.equal(UI.minToHHMM(480), '08:00');
   assert.equal(UI.hhmmToMin('13:15'), 795);
 });
+
+test('formatMetrics returns labeled rows incl. fuel and min SoC', () => {
+  const UI = loadUI();
+  const Sim = (() => { const eng = html.match(/\/\/ SIM_ENGINE_START([\s\S]*?)\/\/ SIM_ENGINE_END/)[1];
+    const c = {}; vm.createContext(c); vm.runInContext(eng, c); return c.Sim; })();
+  const m = Sim.simulate(Sim.defaultParams(), 'A').metrics;
+  const rows = UI.formatMetrics(m, 'A');
+  const labels = rows.map(r => r.label.toLowerCase());
+  assert.ok(labels.some(l => l.includes('lowest')));
+  assert.ok(labels.some(l => l.includes('gas') || l.includes('fuel')));
+  assert.ok(labels.some(l => l.includes('end')));
+  rows.forEach(r => { assert.equal(typeof r.value, 'string'); });
+});
+
+test('formatMetrics adds supercharge timing rows for C', () => {
+  const UI = loadUI();
+  const Sim = (() => { const eng = html.match(/\/\/ SIM_ENGINE_START([\s\S]*?)\/\/ SIM_ENGINE_END/)[1];
+    const c = {}; vm.createContext(c); vm.runInContext(eng, c); return c.Sim; })();
+  const m = Sim.simulate(Sim.defaultParams(), 'C').metrics;
+  const labels = UI.formatMetrics(m, 'C').map(r => r.label.toLowerCase());
+  assert.ok(labels.some(l => l.includes('return') || l.includes('back')));
+});

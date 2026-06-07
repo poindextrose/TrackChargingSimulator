@@ -374,10 +374,112 @@ var UI = (function () {
     return out;
   }
 
-  function formatMetrics() { return []; } // filled in Task 11
+  function fmt(n, d) { return (Math.round(n * Math.pow(10, d)) / Math.pow(10, d)).toFixed(d); }
+  function clock(min) { return min == null ? '—' : minToHHMM(Math.round(min)); }
+
+  function formatMetrics(m, scenarioId) {
+    var rows = [
+      { label: 'Lowest Plaid SoC', value: fmt(m.minSocPct, 0) + '%  (' + fmt(m.minSocKwh, 0) + ' kWh) @ ' + clock(m.minSocAtMin) },
+      { label: 'End-of-day SoC', value: fmt(m.endSocPct, 0) + '%  (' + fmt(m.endSocKwh, 0) + ' kWh)' },
+      { label: 'Trailer at end', value: fmt(m.trailerEndPct, 0) + '%  (' + fmt(m.trailerEndKwh, 0) + ' kWh)' },
+      { label: 'Generator runtime', value: fmt(m.genRuntimeHr, 1) + ' h' },
+      { label: 'Gasoline used', value: fmt(m.fuelGal, 1) + ' gal' },
+      { label: 'From trailer', value: fmt(m.fromTrailerKwh, 0) + ' kWh' },
+      { label: 'From generator', value: fmt(m.fromGeneratorKwh, 0) + ' kWh' },
+    ];
+    if (scenarioId === 'C' && m.c) {
+      rows.push({ label: 'Supercharged', value: fmt(m.fromSuperchargerKwh, 0) + ' kWh in ' + fmt(m.c.scDurationMin || 0, 0) + ' min' });
+      rows.push({ label: 'Back at track', value: clock(m.c.returnMin) + (m.c.backBefore1pm ? '  ✓ before 1pm' : '  ✗ after 1pm') });
+      var missed = m.c.missedSessions || [];
+      rows.push({ label: 'Sessions missed', value: missed.length
+        ? missed.map(function (s) { return clock(s.startMin); }).join(', ')
+        : 'none' });
+    }
+    return rows;
+  }
+
+  function chartScale(b) {
+    var iw = b.w - b.padL - b.padR, ih = b.h - b.padT - b.padB;
+    return {
+      X: function (x) { return b.padL + (x - b.xMin) / (b.xMax - b.xMin) * iw; },
+      Y: function (y) { return b.padT + (1 - (y - b.yMin) / (b.yMax - b.yMin)) * ih; },
+    };
+  }
 
   return { UI_FIELDS: UI_FIELDS, readParams: readParams, formatMetrics: formatMetrics,
-           hhmmToMin: hhmmToMin, minToHHMM: minToHHMM };
+           hhmmToMin: hhmmToMin, minToHHMM: minToHHMM, chartScale: chartScale };
+})();
+
+(function bootstrap() {
+  if (typeof document === 'undefined') return; // skip under node:vm tests
+
+  var SCEN = [
+    { id: 'A', title: 'A · Full day on trailer power', desc: 'All sessions; charge from trailer + generator every gap.' },
+    { id: 'B', title: 'B · Skip the 1pm session', desc: 'Trade one session for a long midday charging window.' },
+    { id: 'C', title: 'C · Supercharge during lunch', desc: 'Drive out after session 3, charge to target, drive back.' },
+  ];
+
+  function buildInputs() {
+    var host = document.getElementById('inputs');
+    var groups = {};
+    UI.UI_FIELDS.forEach(function (f) { (groups[f.g] = groups[f.g] || []).push(f); });
+    var html = '';
+    Object.keys(groups).forEach(function (g) {
+      html += '<div class="grp"><div class="grp-title">' + g + '</div><div class="grp-fields">';
+      groups[g].forEach(function (f) {
+        var type = f.kind === 'time' ? 'time' : 'number';
+        var step = f.step != null ? ' step="' + f.step + '"' : '';
+        html += '<div class="fld"><label for="' + f.id + '">' + f.label +
+          (f.unit ? ' (' + f.unit + ')' : '') + '</label>' +
+          '<input id="' + f.id + '" type="' + type + '" value="' + f.default + '"' + step + '></div>';
+      });
+      html += '</div></div>';
+    });
+    html += '<button id="reset">Reset</button>';
+    host.innerHTML = html;
+    UI.UI_FIELDS.forEach(function (f) {
+      document.getElementById(f.id).addEventListener('input', render);
+    });
+    document.getElementById('reset').addEventListener('click', function () {
+      UI.UI_FIELDS.forEach(function (f) { document.getElementById(f.id).value = f.default; });
+      render();
+    });
+  }
+
+  function currentValues() {
+    var v = {};
+    UI.UI_FIELDS.forEach(function (f) { v[f.id] = document.getElementById(f.id).value; });
+    return v;
+  }
+
+  function renderCard(scen, result) {
+    var el = document.getElementById('card' + scen.id);
+    var m = result.metrics;
+    var badge = m.feasible
+      ? '<span class="badge ok">✓ Feasible</span>'
+      : '<span class="badge bad">✗ Short ' + (Math.round(m.shortfallKwh)) + ' kWh</span>';
+    var rows = UI.formatMetrics(m, scen.id).map(function (r) {
+      return '<li><span>' + r.label + '</span><span>' + r.value + '</span></li>';
+    }).join('');
+    el.innerHTML = '<h2>' + scen.title + '</h2><div class="desc">' + scen.desc + '</div>' +
+      badge + '<canvas id="chart' + scen.id + '" width="560" height="200"></canvas>' +
+      '<ul class="metrics">' + rows + '</ul>';
+    return result; // chart drawn in Task 11
+  }
+
+  function render() {
+    var p = UI.readParams(currentValues());
+    var results = {};
+    SCEN.forEach(function (scen) {
+      results[scen.id] = Sim.simulate(p, scen.id);
+      renderCard(scen, results[scen.id]);
+    });
+    if (typeof drawAllCharts === 'function') drawAllCharts(p, results); // Task 11
+  }
+
+  window.__render = render; // exposed for manual debugging
+  buildInputs();
+  render();
 })();
 // UI_END
 </script>
