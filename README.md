@@ -20,6 +20,7 @@ usage change — so you can decide what to build before committing to hardware.
 Open `index.html` in any browser (Mac / iPad / phone). No install, no server, no
 network connection required. Adjust the inputs and all three scenarios recompute live.
 Your inputs are saved in the browser, so a refresh keeps them; **Reset** returns to defaults.
+Hover any chart to read the Plaid (and trailer) state of charge at that moment; the overlay shows all three plans at once.
 
 ## Design
 
