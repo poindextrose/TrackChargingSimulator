@@ -39,23 +39,19 @@
   .metrics li { display:flex; justify-content:space-between; gap:8px; padding:2px 0;
                 border-bottom:1px dashed var(--line); font-size:12.5px; }
   .metrics li span:last-child { color:#fff; font-variant-numeric:tabular-nums; }
-  .overlay-wrap { padding:0 16px 24px; }
-  .overlay-wrap h3 { font-size:13px; color:var(--mut); margin:0 0 6px; }
+  #result { padding:14px 16px 24px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .panel h2 { margin:0 0 8px; font-size:14px; }
+  #result .metrics { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:0 22px; margin-top:10px; }
+  .fld.chk label { display:flex; flex-direction:row; align-items:center; gap:6px; color:var(--txt); font-size:12.5px; cursor:pointer; }
+  .fld.chk input { width:auto; margin:0; }
   @media (max-width:880px){ .card{ flex-basis:100%; } }
 </style>
 </head>
 <body>
 <header><h1>Track Charging Simulator — Ridge Motorsports Park HPDE</h1></header>
 <div id="inputs"></div>
-<div id="cards">
-  <section class="card" id="cardA"></section>
-  <section class="card" id="cardB"></section>
-  <section class="card" id="cardC"></section>
-</div>
-<div class="overlay-wrap">
-  <h3>All three plans — Plaid SoC across the day</h3>
-  <canvas id="overlay" width="1200" height="240"></canvas>
-</div>
+<div id="result"></div>
 <script>
 // SIM_ENGINE_START
 var Sim = (function () {
@@ -103,6 +99,9 @@ var Sim = (function () {
     driveConsumptionPct: 14,
     scTargetSocPct: 100,
     scPowerCapKw: 250,
+    supercharge: false,
+    skipS1: false, skipS2: false, skipS3: false, skipS4: false,
+    skipS5: false, skipS6: false, skipS7: false,
   };
   function defaultParams() {
     var o = {}; for (var k in DEFAULTS) o[k] = DEFAULTS[k]; return o;
@@ -132,47 +131,54 @@ var Sim = (function () {
     return { deliverKw: deliver, fromGenBusKw: fromGenBus, fromTrailerBusKw: fromTrailerBus };
   }
 
-  function buildSchedule(p, scenarioId) {
+  function buildSchedule(p) {
     var sessions = [];
     var hourMin = p.firstSessionMin;
     while (sessions.length < p.sessionCount) {
       if (hourMin !== p.lunchSkipHour * 60) {
+        var idx = sessions.length + 1;
         sessions.push({
-          index: sessions.length + 1,
+          index: idx,
           startMin: hourMin,
           endMin: hourMin + p.sessionDurationMin,
+          skipped: !!p['skipS' + idx], // user chose to skip this session
         });
       }
       hourMin += 60;
     }
-    if (scenarioId === 'B') {
-      var skipMin = (p.lunchSkipHour + 1) * 60;
-      return sessions.filter(function (s) { return s.startMin !== skipMin; });
-    }
     return sessions;
   }
 
-  function simulate(p, scenarioId) {
+  function simulate(p) {
     var dt = 1 / 60;
-    var sessions = buildSchedule(p, scenarioId);
+    var sessions = buildSchedule(p);
     var startMin = p.arrivalTimeMin;
     var endMin = sessions[sessions.length - 1].endMin;
     var cap = p.capacityKwh, tcap = p.trailerCapKwh;
     var genBusFull = p.genPowerKw * p.acdcEff;
 
+    // Supercharge departs after session 3 (index 3), returns for session 4.
+    var depSession = null, backBy = null;
+    for (var di = 0; di < sessions.length; di++) {
+      if (sessions[di].index === 3) depSession = sessions[di];
+      if (sessions[di].index === 4) backBy = sessions[di];
+    }
+    var s3End = depSession ? depSession.endMin : Infinity;
+
     // Per-minute cooling power (kW): a pre-first-session lump (heat from the drive
-    // in) over the arrival window, plus a lump in each post-session gap.
-    // Scenario C: skip the gap after the 3rd session (replaced by SC trip).
+    // in), plus a lump in each gap between sessions the car actually runs. The
+    // supercharge away-trip gap (after session 3) gets no lump.
+    var runByUser = sessions.filter(function (s) { return !s.skipped; });
     var cooling = new Array(endMin + 1);
     for (var z = 0; z <= endMin; z++) cooling[z] = 0;
-    var preStart = startMin, preEnd = sessions[0].startMin;
-    if (preEnd > preStart && p.preSessionCoolingKwh > 0) {
-      var preKw = p.preSessionCoolingKwh / ((preEnd - preStart) / 60);
-      for (var pm = preStart; pm < preEnd; pm++) cooling[pm] = preKw;
+    var preEnd = runByUser.length ? runByUser[0].startMin : startMin;
+    if (runByUser.length && preEnd > startMin && p.preSessionCoolingKwh > 0) {
+      var preKw = p.preSessionCoolingKwh / ((preEnd - startMin) / 60);
+      for (var pm = startMin; pm < preEnd; pm++) cooling[pm] = preKw;
     }
-    for (var i = 0; i < sessions.length - 1; i++) {
-      var gapStart = sessions[i].endMin, gapEnd = sessions[i + 1].startMin;
-      if (scenarioId === 'C' && i === 2) continue;
+    for (var i = 0; i < runByUser.length - 1; i++) {
+      if (p.supercharge && runByUser[i].index === 3) continue; // away-trip gap
+      var gapStart = runByUser[i].endMin, gapEnd = runByUser[i + 1].startMin;
       var gapHours = (gapEnd - gapStart) / 60;
       var kw = p.coolingPerGapKwh / gapHours;
       for (var m = gapStart; m < gapEnd; m++) cooling[m] = kw;
@@ -185,13 +191,10 @@ var Sim = (function () {
     var minSocKwh = eCar, minSocAtMin = startMin;
     var timeline = [];
 
-    // Scenario C trip state machine.
-    var trip = { phase: scenarioId === 'C' ? 'before' : 'off',
+    // Supercharge trip state machine (only runs when p.supercharge).
+    var trip = { phase: p.supercharge ? 'before' : 'off',
                  driveEndMin: null, scStartMin: null, scEndMin: null,
                  scArrivalSocPct: null, returnMin: null };
-    var depSession = sessions[2];
-    var s3End = depSession ? depSession.endMin : Infinity;
-    var backBy = sessions[3];
     var driveDrainKw = (p.driveConsumptionPct / 100 * cap) / (p.driveTimeMin / 60);
 
     function sessionAt(t) {
@@ -214,7 +217,7 @@ var Sim = (function () {
     for (var t = startMin; t < endMin; t++) {
       var mode = null, coolKw = 0, genOn = false;
 
-      // ---- Scenario C overrides ----
+      // ---- Supercharge trip overrides ----
       if (trip.phase !== 'off' && trip.phase !== 'done') {
         if (trip.phase === 'before' && t >= s3End) {
           trip.phase = 'out'; trip.driveEndMin = t + p.driveTimeMin;
@@ -247,18 +250,19 @@ var Sim = (function () {
       // ---- Normal modes ----
       if (!mode) {
         var s = sessionAt(t);
-        // Scenario C: a session that started while the car was away (before it
-        // returned) is missed entirely — never drawn, even for its post-return minutes.
-        var missed = s && scenarioId === 'C' && trip.returnMin != null &&
-                     s.startMin >= s3End && s.startMin < trip.returnMin;
-        if (s && !missed) {
+        // A session that started while the car was away supercharging is skipped
+        // entirely — never drawn, even for its post-return minutes.
+        var awaySkipped = s && p.supercharge && trip.returnMin != null &&
+                          s.startMin >= s3End && s.startMin < trip.returnMin;
+        var run = s && !s.skipped && !awaySkipped;
+        if (run) {
           mode = 'SESSION';
           var rate = p.sessionEnergyKwh / (p.sessionDurationMin / 60);
           eCar -= rate * dt;
           if (eTr < tcap) { genOn = true; refillTrailer(genBusFull); }
         } else {
-          mode = missed ? 'MISSED' : 'CHARGE';
-          coolKw = cooling[t] || 0; // 0 inside a (missed) session window
+          mode = s ? 'SKIP' : 'CHARGE'; // a skipped-session slot, or a between-session gap
+          coolKw = cooling[t] || 0;
           var cd = chargeDelivery(Math.max(0, eCar) / cap * 100, eCar, eTr, p);
           var net = cd.deliverKw - coolKw;
           eCar += net * dt;
@@ -284,23 +288,21 @@ var Sim = (function () {
       });
     }
 
-    // Fuel scales with actual generator AC output. It is scenario-independent until
-    // the trailer can reach 100% and let the generator idle; while the trailer never
-    // fully refills, the generator runs full-rated every minute in all scenarios.
     var fuelGal = p.genPowerKw > 0 ? genAcKwh * (p.fuelBurnGalPerHr / p.genPowerKw) : 0;
-    // Sessions the car can't make. If the trip departed and returned, the missed
-    // sessions are those between departure and return. If it departed but never
-    // returned (returnMin null — e.g. a pathologically slow Supercharger), every
-    // session from the departure onward is missed (the car is stuck charging).
-    var missedSessions = [];
-    if (scenarioId === 'C' && trip.phase !== 'off' && trip.phase !== 'before') {
-      var cutoff = trip.returnMin != null ? trip.returnMin : Infinity;
-      for (var si = 0; si < sessions.length; si++) {
-        if (sessions[si].startMin >= s3End && sessions[si].startMin < cutoff) {
-          missedSessions.push({ index: sessions[si].index, startMin: sessions[si].startMin });
-        }
+
+    // Sessions not run: user-skipped, plus any the car was away for while supercharging
+    // (between departure and return, or all of them if it never returns).
+    var awayEnd = (trip.phase === 'off' || trip.phase === 'before') ? -Infinity
+                : (trip.returnMin != null ? trip.returnMin : Infinity);
+    var skippedSessions = [];
+    for (var sj = 0; sj < sessions.length; sj++) {
+      var ss = sessions[sj];
+      var away = ss.startMin >= s3End && ss.startMin < awayEnd;
+      if (ss.skipped || away) {
+        skippedSessions.push({ index: ss.index, startMin: ss.startMin, reason: ss.skipped ? 'skip' : 'supercharge' });
       }
     }
+
     var metrics = {
       feasible: minSocKwh >= p.reserveKwh - 1e-9,
       shortfallKwh: Math.max(0, p.reserveKwh - minSocKwh),
@@ -311,14 +313,14 @@ var Sim = (function () {
       fromArrivalKwh: effectiveArrivalKwh(p),
       fromTrailerKwh: fromTrailer, fromGeneratorKwh: fromGenerator,
       fromSuperchargerKwh: fromSupercharger,
-      c: scenarioId === 'C' ? {
+      sessionsRun: sessions.length - skippedSessions.length,
+      skippedSessions: skippedSessions,
+      sc: p.supercharge ? {
         scArrivalSocPct: trip.scArrivalSocPct,
-        scStartMin: trip.scStartMin, scEndMin: trip.scEndMin,
         scDurationMin: (trip.scEndMin != null && trip.scStartMin != null)
           ? trip.scEndMin - trip.scStartMin : null,
         returnMin: trip.returnMin,
         backBefore1pm: (trip.returnMin != null && backBy) ? trip.returnMin <= backBy.startMin : false,
-        missedSessions: missedSessions,
       } : null,
     };
     return { timeline: timeline, metrics: metrics };
@@ -345,6 +347,9 @@ var UI = (function () {
   var num = function (key, mul) {
     return function (out, v) { out[key] = (mul == null ? 1 : mul) * parseFloat(v); };
   };
+  var check = function (key) {
+    return function (out, v) { out[key] = (v === true || v === 'true'); };
+  };
   var UI_FIELDS = [
     { g:'Plaid', id:'arrivalTime', label:'Arrival', kind:'time', default:'08:00',
       set:function(o,v){ o.arrivalTimeMin = hhmmToMin(v); } },
@@ -369,10 +374,19 @@ var UI = (function () {
       set:function(o,v){ o.firstSessionMin = hhmmToMin(v); } },
     { g:'Day', id:'sessionCount', label:'# sessions', unit:'', step:1, default:7, min:1, set:num('sessionCount') },
 
-    { g:'Scenario C', id:'driveTimeMin', label:'Drive each way', unit:'min', step:1, default:30, min:1, set:num('driveTimeMin') },
-    { g:'Scenario C', id:'driveConsumptionPct', label:'Drive cost / leg', unit:'% pack', step:1, default:14, set:num('driveConsumptionPct') },
-    { g:'Scenario C', id:'scTargetSocPct', label:'SC target', unit:'%', step:1, default:100, set:num('scTargetSocPct') },
-    { g:'Scenario C', id:'scPowerCapKw', label:'SC power cap', unit:'kW', step:5, default:250, min:1, set:num('scPowerCapKw') },
+    { g:'Supercharge', id:'supercharge', label:'Supercharge after session 3 (skips session 4)', kind:'check', default:false, set:check('supercharge') },
+    { g:'Supercharge', id:'driveTimeMin', label:'Drive each way', unit:'min', step:1, default:30, min:1, set:num('driveTimeMin') },
+    { g:'Supercharge', id:'driveConsumptionPct', label:'Drive cost / leg', unit:'% pack', step:1, default:14, set:num('driveConsumptionPct') },
+    { g:'Supercharge', id:'scTargetSocPct', label:'SC target', unit:'%', step:1, default:100, set:num('scTargetSocPct') },
+    { g:'Supercharge', id:'scPowerCapKw', label:'SC power cap', unit:'kW', step:5, default:250, min:1, set:num('scPowerCapKw') },
+
+    { g:'Skip sessions', id:'skipS1', label:'9:00', kind:'check', default:false, set:check('skipS1') },
+    { g:'Skip sessions', id:'skipS2', label:'10:00', kind:'check', default:false, set:check('skipS2') },
+    { g:'Skip sessions', id:'skipS3', label:'11:00', kind:'check', default:false, set:check('skipS3') },
+    { g:'Skip sessions', id:'skipS4', label:'1:00', kind:'check', default:false, set:check('skipS4') },
+    { g:'Skip sessions', id:'skipS5', label:'2:00', kind:'check', default:false, set:check('skipS5') },
+    { g:'Skip sessions', id:'skipS6', label:'3:00', kind:'check', default:false, set:check('skipS6') },
+    { g:'Skip sessions', id:'skipS7', label:'4:00', kind:'check', default:false, set:check('skipS7') },
   ];
 
   function readParams(values) {
@@ -386,25 +400,27 @@ var UI = (function () {
   function fmt(n, d) { return (Math.round(n * Math.pow(10, d)) / Math.pow(10, d)).toFixed(d); }
   function clock(min) { return min == null ? '—' : minToHHMM(Math.round(min)); }
 
-  function formatMetrics(m, scenarioId) {
+  function formatMetrics(m) {
+    var totalSessions = m.sessionsRun + m.skippedSessions.length;
     var rows = [
       { label: 'Lowest Plaid SoC', value: fmt(m.minSocPct, 0) + '%  (' + fmt(m.minSocKwh, 0) + ' kWh) @ ' + clock(m.minSocAtMin) },
       { label: 'End-of-day SoC', value: fmt(m.endSocPct, 0) + '%  (' + fmt(m.endSocKwh, 0) + ' kWh)' },
       { label: 'Trailer at end', value: fmt(m.trailerEndPct, 0) + '%  (' + fmt(m.trailerEndKwh, 0) + ' kWh)' },
+      { label: 'Sessions run', value: m.sessionsRun + ' of ' + totalSessions },
       { label: 'Generator runtime', value: fmt(m.genRuntimeHr, 1) + ' h' },
       { label: 'Gasoline used', value: fmt(m.fuelGal, 1) + ' gal' },
       { label: 'From trailer', value: fmt(m.fromTrailerKwh, 0) + ' kWh' },
       { label: 'From generator', value: fmt(m.fromGeneratorKwh, 0) + ' kWh' },
     ];
-    if (scenarioId === 'C' && m.c) {
-      rows.push({ label: 'Supercharged', value: fmt(m.fromSuperchargerKwh, 0) + ' kWh in ' + fmt(m.c.scDurationMin || 0, 0) + ' min' });
-      rows.push({ label: 'Back at track', value: m.c.returnMin != null
-        ? clock(m.c.returnMin) + (m.c.backBefore1pm ? '  ✓ before 1pm' : '  ✗ after 1pm')
-        : '— (never returned)' });
-      var missed = m.c.missedSessions || [];
-      rows.push({ label: 'Sessions missed', value: missed.length
-        ? missed.map(function (s) { return clock(s.startMin); }).join(', ')
-        : 'none' });
+    if (m.skippedSessions.length) {
+      rows.push({ label: 'Skipped', value: m.skippedSessions.map(function (s) {
+        return clock(s.startMin) + (s.reason === 'supercharge' ? ' (SC)' : '');
+      }).join(', ') });
+    }
+    if (m.sc) {
+      rows.push({ label: 'Supercharged', value: fmt(m.fromSuperchargerKwh, 0) + ' kWh' +
+        (m.sc.scDurationMin != null ? ' in ' + fmt(m.sc.scDurationMin, 0) + ' min' : ' (never finished)') });
+      rows.push({ label: 'Back at track', value: m.sc.returnMin != null ? clock(m.sc.returnMin) : '— (never returned)' });
     }
     return rows;
   }
@@ -424,12 +440,6 @@ var UI = (function () {
 (function bootstrap() {
   if (typeof document === 'undefined') return; // skip under node:vm tests
 
-  var SCEN = [
-    { id: 'A', title: 'A · Full day on trailer power', desc: 'All sessions; charge from trailer + generator every gap.' },
-    { id: 'B', title: 'B · Skip the 1pm session', desc: 'Trade one session for a long midday charging window.' },
-    { id: 'C', title: 'C · Supercharge during lunch', desc: 'Drive out after session 3, charge to target, drive back.' },
-  ];
-
   var STORAGE_KEY = 'tcs-params';
   function saveValues(values) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(values)); } catch (e) { /* storage unavailable (private mode/quota) */ }
@@ -446,6 +456,11 @@ var UI = (function () {
     Object.keys(groups).forEach(function (g) {
       html += '<div class="grp"><div class="grp-title">' + g + '</div><div class="grp-fields">';
       groups[g].forEach(function (f) {
+        if (f.kind === 'check') {
+          html += '<div class="fld chk"><label for="' + f.id + '">' +
+            '<input id="' + f.id + '" type="checkbox"' + (f.default ? ' checked' : '') + '> ' + f.label + '</label></div>';
+          return;
+        }
         var type = f.kind === 'time' ? 'time' : 'number';
         var step = f.step != null ? ' step="' + f.step + '"' : '';
         var mn = f.min != null ? ' min="' + f.min + '"' : '';
@@ -461,42 +476,54 @@ var UI = (function () {
     // Overlay any saved values from a previous session (defaults stay for fields not stored).
     var saved = loadValues();
     UI.UI_FIELDS.forEach(function (f) {
-      if (saved[f.id] != null && saved[f.id] !== '') document.getElementById(f.id).value = saved[f.id];
+      var el = document.getElementById(f.id);
+      if (saved[f.id] == null || saved[f.id] === '') return;
+      if (f.kind === 'check') el.checked = (saved[f.id] === true || saved[f.id] === 'true');
+      else el.value = saved[f.id];
     });
     UI.UI_FIELDS.forEach(function (f) {
-      document.getElementById(f.id).addEventListener('input', render);
+      var el = document.getElementById(f.id);
+      el.addEventListener(f.kind === 'check' ? 'change' : 'input', render);
     });
     document.getElementById('reset').addEventListener('click', function () {
-      UI.UI_FIELDS.forEach(function (f) { document.getElementById(f.id).value = f.default; });
+      UI.UI_FIELDS.forEach(function (f) {
+        var el = document.getElementById(f.id);
+        if (f.kind === 'check') el.checked = f.default; else el.value = f.default;
+      });
       render();
     });
   }
 
   function currentValues() {
     var v = {};
-    UI.UI_FIELDS.forEach(function (f) { v[f.id] = document.getElementById(f.id).value; });
+    UI.UI_FIELDS.forEach(function (f) {
+      var el = document.getElementById(f.id);
+      v[f.id] = f.kind === 'check' ? el.checked : el.value;
+    });
     return v;
   }
 
-  function renderCard(scen, result) {
-    var el = document.getElementById('card' + scen.id);
+  function renderResult(p, result) {
+    var el = document.getElementById('result');
     var m = result.metrics;
     var badge = m.feasible
       ? '<span class="badge ok">✓ Feasible</span>'
       : '<span class="badge bad">✗ Short ' + (Math.round(m.shortfallKwh)) + ' kWh</span>';
-    var rows = UI.formatMetrics(m, scen.id).map(function (r) {
+    var rows = UI.formatMetrics(m).map(function (r) {
       return '<li><span>' + r.label + '</span><span>' + r.value + '</span></li>';
     }).join('');
-    el.innerHTML = '<h2>' + scen.title + '</h2><div class="desc">' + scen.desc + '</div>' +
-      badge + '<canvas id="chart' + scen.id + '" width="560" height="200"></canvas>' +
-      '<ul class="metrics">' + rows + '</ul>';
-    return result;
+    el.innerHTML = '<section class="panel">' + badge +
+      '<canvas id="chart" width="1200" height="260"></canvas>' +
+      '<ul class="metrics">' + rows + '</ul></section>';
+    var tl = result.timeline;
+    var opts = { xMin: p.arrivalTimeMin, xMax: tl.length ? tl[tl.length - 1].min + 1 : p.arrivalTimeMin };
+    var cv = document.getElementById('chart');
+    drawTimeline(cv, p, result, opts);
+    wireHover(cv);
   }
 
-  function sessionBands(p, scenarioId) {
-    return Sim.buildSchedule(p, scenarioId).map(function (s) {
-      return { start: s.startMin, end: s.endMin };
-    });
+  function sessionBands(p) {
+    return Sim.buildSchedule(p); // {index, startMin, endMin, skipped}
   }
 
   // ---- chart hover (crosshair + tooltip) ----
@@ -537,7 +564,7 @@ var UI = (function () {
     });
   }
 
-  function drawTimeline(canvas, p, result, scenarioId, opts, hoverX) {
+  function drawTimeline(canvas, p, result, opts, hoverX) {
     var ctx = canvas.getContext('2d');
     var W = canvas.width, H = canvas.height;
     var b = { w:W, h:H, padL:30, padR:8, padT:8, padB:18, xMin:opts.xMin, xMax:opts.xMax, yMin:0, yMax:100 };
@@ -555,10 +582,18 @@ var UI = (function () {
       var x = s.X(hh * 60);
       ctx.fillText(((hh % 12) || 12), x - 4, H - 5);
     }
-    // session bands
-    ctx.fillStyle = 'rgba(99,102,241,.16)';
-    sessionBands(p, scenarioId).forEach(function (band) {
-      ctx.fillRect(s.X(band.start), b.padT, Math.max(1, s.X(band.end) - s.X(band.start)), H - b.padT - b.padB);
+    // session bands: solid = run, dashed outline = skipped (user or supercharge-away)
+    var skippedIdx = {};
+    result.metrics.skippedSessions.forEach(function (ss) { skippedIdx[ss.index] = true; });
+    sessionBands(p).forEach(function (sess) {
+      var x0 = s.X(sess.startMin), w = Math.max(1, s.X(sess.endMin) - x0);
+      if (skippedIdx[sess.index]) {
+        ctx.strokeStyle = 'rgba(99,102,241,.5)'; ctx.lineWidth = 1; ctx.setLineDash([3, 2]);
+        ctx.strokeRect(x0, b.padT, w, H - b.padT - b.padB); ctx.setLineDash([]);
+      } else {
+        ctx.fillStyle = 'rgba(99,102,241,.16)';
+        ctx.fillRect(x0, b.padT, w, H - b.padT - b.padB);
+      }
     });
     // reserve line
     if (p.reserveKwh > 0) {
@@ -594,76 +629,14 @@ var UI = (function () {
         { text: 'Trailer ' + Math.round(pt.trlPct) + '%', color: '#3b82f6' }
       ], b);
     }
-    canvas.__draw = { redraw: function (hx) { drawTimeline(canvas, p, result, scenarioId, opts, hx); } };
-  }
-
-  function drawOverlay(p, results, xMin, xMax, hoverX) {
-    var canvas = document.getElementById('overlay');
-    var ctx = canvas.getContext('2d');
-    var W = canvas.width, H = canvas.height;
-    var b = { w:W, h:H, padL:34, padR:10, padT:10, padB:20, xMin:xMin, xMax:xMax, yMin:0, yMax:100 };
-    var sc = UI.chartScale(b);
-    ctx.clearRect(0, 0, W, H);
-    ctx.strokeStyle = '#222732'; ctx.fillStyle = '#6b7280'; ctx.font = '11px sans-serif';
-    [0, 25, 50, 75, 100].forEach(function (yy) {
-      ctx.beginPath(); ctx.moveTo(b.padL, sc.Y(yy)); ctx.lineTo(W - b.padR, sc.Y(yy)); ctx.stroke();
-      ctx.fillText(yy + '%', 6, sc.Y(yy) + 3);
-    });
-    for (var hh = Math.ceil(xMin / 60); hh <= xMax / 60; hh++) {
-      ctx.fillText(((hh % 12) || 12), sc.X(hh * 60) - 4, H - 5);
-    }
-    var colors = { A: '#22c55e', B: '#eab308', C: '#06b6d4' };
-    ['A', 'B', 'C'].forEach(function (id) {
-      ctx.strokeStyle = colors[id]; ctx.lineWidth = 1.8; ctx.beginPath();
-      results[id].timeline.forEach(function (pt, i) {
-        var xx = sc.X(pt.min), yy = sc.Y(Math.max(0, Math.min(100, pt.carPct)));
-        if (i) ctx.lineTo(xx, yy); else ctx.moveTo(xx, yy);
-      });
-      ctx.stroke();
-      ctx.fillStyle = colors[id]; ctx.fillText(id, W - b.padR - 40 + 14 * ['A','B','C'].indexOf(id), 14);
-    });
-
-    // hover crosshair + tooltip (all three plans' Plaid SoC at the hovered time)
-    if (hoverX != null) {
-      var minute = hoverMinuteFromX(hoverX, b);
-      var hx = sc.X(minute);
-      ctx.strokeStyle = 'rgba(230,232,236,.35)'; ctx.lineWidth = 1; ctx.setLineDash([]);
-      ctx.beginPath(); ctx.moveTo(hx, b.padT); ctx.lineTo(hx, H - b.padB); ctx.stroke();
-      var lines = [{ text: UI.minToHHMM(minute), color: '#9aa3b2' }];
-      ['A', 'B', 'C'].forEach(function (id) {
-        var pt = pointAtMinute(results[id].timeline, minute);
-        ctx.fillStyle = colors[id]; ctx.beginPath(); ctx.arc(hx, sc.Y(Math.max(0, Math.min(100, pt.carPct))), 3, 0, 6.2832); ctx.fill();
-        lines.push({ text: id + '  ' + Math.round(pt.carPct) + '%  (' + Math.round(pt.carPct / 100 * p.capacityKwh) + ' kWh)', color: colors[id] });
-      });
-      drawTooltip(ctx, hx, b.padT + 3, lines, b);
-    }
-    canvas.__draw = { redraw: function (hx) { drawOverlay(p, results, xMin, xMax, hx); } };
-  }
-
-  function drawAllCharts(p, results) {
-    var xMin = p.arrivalTimeMin;
-    var xMax = Math.max.apply(null, ['A', 'B', 'C'].map(function (id) {
-      var tl = results[id].timeline;
-      return tl.length ? tl[tl.length - 1].min + 1 : xMin;
-    }));
-    ['A', 'B', 'C'].forEach(function (id) {
-      var cv = document.getElementById('chart' + id);
-      if (cv) { drawTimeline(cv, p, results[id], id, { xMin: xMin, xMax: xMax }); wireHover(cv); }
-    });
-    drawOverlay(p, results, xMin, xMax);
-    wireHover(document.getElementById('overlay'));
+    canvas.__draw = { redraw: function (hx) { drawTimeline(canvas, p, result, opts, hx); } };
   }
 
   function render() {
     var values = currentValues();
     saveValues(values); // persist so a refresh restores the inputs
     var p = UI.readParams(values);
-    var results = {};
-    SCEN.forEach(function (scen) {
-      results[scen.id] = Sim.simulate(p, scen.id);
-      renderCard(scen, results[scen.id]);
-    });
-    drawAllCharts(p, results);
+    renderResult(p, Sim.simulate(p));
   }
 
   window.__render = render; // exposed for manual debugging

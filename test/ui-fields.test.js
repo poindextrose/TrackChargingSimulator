@@ -6,26 +6,27 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
-test('layout shell has the input bar, three card slots, and overlay', () => {
-  assert.ok(/id="inputs"/.test(html));
-  assert.ok(/id="cards"/.test(html));
-  assert.ok(/id="overlay"/.test(html));
-  ['cardA', 'cardB', 'cardC'].forEach(function (id) {
-    assert.ok(new RegExp('id="' + id + '"').test(html), id + ' present');
-  });
-});
-
+function loadSim() {
+  const eng = html.match(/\/\/ SIM_ENGINE_START([\s\S]*?)\/\/ SIM_ENGINE_END/)[1];
+  const c = {}; vm.createContext(c); vm.runInContext(eng, c); return c.Sim;
+}
 function loadUI() {
   const src = html.match(/\/\/ UI_START([\s\S]*?)\/\/ UI_END/)[1];
-  // engine is a dependency of the UI block; load it first into the same context
   const eng = html.match(/\/\/ SIM_ENGINE_START([\s\S]*?)\/\/ SIM_ENGINE_END/)[1];
   const ctx = { document: undefined, window: {} };
   vm.createContext(ctx);
   vm.runInContext(eng, ctx);
-  // UI block references `document` only inside functions we will not call here.
+  // The bootstrap IIFE early-returns when `document` is undefined, so loading is safe.
   vm.runInContext(src, ctx);
   return ctx.UI;
 }
+
+test('layout shell has the input bar and a single result panel (no 3-card / overlay)', () => {
+  assert.ok(/id="inputs"/.test(html));
+  assert.ok(/id="result"/.test(html));
+  assert.ok(!/id="cards"/.test(html));
+  assert.ok(!/id="overlay"/.test(html));
+});
 
 test('UI_FIELDS ids are unique', () => {
   const UI = loadUI();
@@ -33,17 +34,31 @@ test('UI_FIELDS ids are unique', () => {
   assert.equal(new Set(ids).size, ids.length);
 });
 
+test('UI_FIELDS includes the supercharge toggle and 7 skip checkboxes', () => {
+  const UI = loadUI();
+  const checks = UI.UI_FIELDS.filter(f => f.kind === 'check').map(f => f.id);
+  assert.ok(checks.indexOf('supercharge') !== -1);
+  for (let i = 1; i <= 7; i++) assert.ok(checks.indexOf('skipS' + i) !== -1, 'skipS' + i + ' present');
+});
+
 test('readParams(default form values) deep-equals engine defaultParams', () => {
   const UI = loadUI();
-  const Sim = (() => {
-    const eng = html.match(/\/\/ SIM_ENGINE_START([\s\S]*?)\/\/ SIM_ENGINE_END/)[1];
-    const c = {}; vm.createContext(c); vm.runInContext(eng, c); return c.Sim;
-  })();
-  // Build a values map from each field's default.
+  const Sim = loadSim();
+  const values = {};
+  UI.UI_FIELDS.forEach(f => { values[f.id] = String(f.default); }); // String(false) -> 'false'
+  assert.deepEqual(UI.readParams(values), Sim.defaultParams());
+});
+
+test('readParams parses checkbox values (boolean or string)', () => {
+  const UI = loadUI();
   const values = {};
   UI.UI_FIELDS.forEach(f => { values[f.id] = String(f.default); });
-  const parsed = UI.readParams(values);
-  assert.deepEqual(parsed, Sim.defaultParams());
+  values.supercharge = true;   // checkbox .checked is a boolean in the live UI
+  values.skipS4 = 'true';      // localStorage may round-trip it as a string
+  const p = UI.readParams(values);
+  assert.equal(p.supercharge, true);
+  assert.equal(p.skipS4, true);
+  assert.equal(p.skipS1, false);
 });
 
 test('hhmmToMin / minToHHMM round-trip', () => {
@@ -53,26 +68,34 @@ test('hhmmToMin / minToHHMM round-trip', () => {
   assert.equal(UI.hhmmToMin('13:15'), 795);
 });
 
-test('formatMetrics returns labeled rows incl. fuel and min SoC', () => {
+test('formatMetrics returns labeled rows incl. fuel, min SoC, sessions run', () => {
   const UI = loadUI();
-  const Sim = (() => { const eng = html.match(/\/\/ SIM_ENGINE_START([\s\S]*?)\/\/ SIM_ENGINE_END/)[1];
-    const c = {}; vm.createContext(c); vm.runInContext(eng, c); return c.Sim; })();
-  const m = Sim.simulate(Sim.defaultParams(), 'A').metrics;
-  const rows = UI.formatMetrics(m, 'A');
+  const Sim = loadSim();
+  const rows = UI.formatMetrics(Sim.simulate(Sim.defaultParams()).metrics);
   const labels = rows.map(r => r.label.toLowerCase());
   assert.ok(labels.some(l => l.includes('lowest')));
   assert.ok(labels.some(l => l.includes('gas') || l.includes('fuel')));
   assert.ok(labels.some(l => l.includes('end')));
+  assert.ok(labels.some(l => l.includes('sessions run')));
   rows.forEach(r => { assert.equal(typeof r.value, 'string'); });
 });
 
-test('formatMetrics adds supercharge timing rows for C', () => {
+test('formatMetrics adds supercharge + skipped rows when supercharging', () => {
   const UI = loadUI();
-  const Sim = (() => { const eng = html.match(/\/\/ SIM_ENGINE_START([\s\S]*?)\/\/ SIM_ENGINE_END/)[1];
-    const c = {}; vm.createContext(c); vm.runInContext(eng, c); return c.Sim; })();
-  const m = Sim.simulate(Sim.defaultParams(), 'C').metrics;
-  const labels = UI.formatMetrics(m, 'C').map(r => r.label.toLowerCase());
-  assert.ok(labels.some(l => l.includes('return') || l.includes('back')));
+  const Sim = loadSim();
+  const p = Sim.defaultParams(); p.supercharge = true;
+  const labels = UI.formatMetrics(Sim.simulate(p).metrics).map(r => r.label.toLowerCase());
+  assert.ok(labels.some(l => l.includes('supercharged')));
+  assert.ok(labels.some(l => l.includes('back')));
+  assert.ok(labels.some(l => l.includes('skipped')));
+});
+
+test('formatMetrics shows a skipped row when a session is skipped', () => {
+  const UI = loadUI();
+  const Sim = loadSim();
+  const p = Sim.defaultParams(); p.skipS4 = true;
+  const labels = UI.formatMetrics(Sim.simulate(p).metrics).map(r => r.label.toLowerCase());
+  assert.ok(labels.some(l => l.includes('skipped')));
 });
 
 test('chartScale maps domain to canvas box', () => {

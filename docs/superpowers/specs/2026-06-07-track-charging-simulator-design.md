@@ -13,7 +13,7 @@ This is a throwaway planning aid, not production software. Once the user picks a
 
 **Goals**
 - Model the Plaid's battery state of charge (SoC) minute-by-minute across a full track day.
-- Compare three scenarios side by side: stay all day on trailer power (A), skip the 1pm session (B), Supercharge during lunch (C).
+- Model one configurable day plan: skip any session(s) and/or run a Supercharger trip after session 3, and see the effect on SoC, feasibility, and gas. (The old "stay all day / skip the 1pm / Supercharge at lunch" plans are just three configurations of this.)
 - Answer: "With config X, can I complete all my sessions? How much gas do I burn? How big must the trailer battery be?"
 - Run entirely offline, on any device (Mac/iPad/phone), with zero install.
 
@@ -27,12 +27,12 @@ This is a throwaway planning aid, not production software. Once the user picks a
 
 A **single self-contained `index.html` file**: HTML + CSS + vanilla JavaScript, no external dependencies, no network calls, no build step. Charts are hand-rolled on `<canvas>` (no charting library) to keep the file small and fully offline. Double-click to open; edit inputs; everything recomputes live.
 
-**Core = a 1-minute time-step simulation engine** (pure function: `simulate(params, scenario) → timeline + metrics`). The UI calls it three times (once per scenario) on every input change and re-renders.
+**Core = a 1-minute time-step simulation engine** (pure function: `simulate(params) → timeline + metrics`). The UI calls it once on every input change and re-renders the single result panel.
 
 Suggested internal structure (still one file, but logically separated):
 - `MODEL` — constants, the Supercharger curve, the day schedule builder.
 - `simulate(params, scenarioId)` — the engine.
-- `render()` — reads inputs, runs all three scenarios, draws charts + metrics.
+- `render()` — reads inputs, runs the simulation, draws the chart + metrics.
 - Small canvas chart helper.
 
 ## 4. Day schedule (defaults)
@@ -59,7 +59,7 @@ Schedule is parameterized by first-session time, session count, lunch-skip hour,
 
 ## 5. Parameters (inputs)
 
-All live; changing any re-runs all three scenarios. Grouped in the top input bar.
+All live; changing any re-runs the simulation. Grouped in the top input bar. Plus two checkbox groups: **Supercharge after session 3** (one toggle) and **Skip sessions** (one toggle per session).
 
 ### Plaid
 | Param | Default | Unit | Notes |
@@ -88,7 +88,7 @@ All live; changing any re-runs all three scenarios. Grouped in the top input bar
 | DC-DC efficiency | 95 | % | Bus draw = 40 / 0.95 ≈ 42.1 kW to deliver 40 kW |
 | Reserve floor | 0 | kWh | Min car energy for "feasible" (adjustable) |
 
-### Scenario C (Supercharge run)
+### Supercharge run (when the "Supercharge after session 3" toggle is on)
 | Param | Default | Unit | Notes |
 |-------|---------|------|-------|
 | Drive time each way | 30 | min | Used for timing the lunch window |
@@ -174,28 +174,27 @@ const PLAID_V3_CURVE = [
 
 Sanity anchors from sources: peak 250 kW held ~10–33%; ~148 kW @ 50%; ~68 kW @ 80%; single-digit kW near 100%; 10→80% ≈ 28 min; 0→100% ≈ 60–80 min (the slow tail dominates). Interpolated mid-points (40/60/70/90%) are ±10%.
 
-## 8. The three scenarios
+## 8. The configurable day plan
 
-- **A — Full day on trailer power.** All 7 sessions. Charge from trailer+generator in every gap. The 11:15→13:00 lunch gap is the big recovery window. Cooling lumps after S1–S6.
-- **B — Skip the 1pm session (S4).** Sessions S1,S2,S3,S5,S6,S7 (six). One fewer 25 kWh draw, and a long 11:15→14:00 charging window. Cooling lumps after S1,S2,S3,S5,S6.
-- **C — Supercharge during lunch.** After S3 (11:15): drive 30 min (−14%), Supercharge to target SoC along the Plaid curve, drive 30 min back (−14%), resume S4–S7. Trailer just refills off the generator while away. The engine computes the real SC duration and the **return time vs the 1pm session**, and flags if you'd be late. No cooling during the away period; cooling lumps after S1,S2,S4,S5,S6.
+A single day plan, shaped by checkbox controls (defaults reproduce "full day on trailer power"). `simulate(params)` runs one plan; `buildSchedule(params)` returns all sessions, each tagged `skipped` from its per-session toggle.
+
+- **Skip any session.** Each of the 7 sessions has a skip toggle. A skipped session draws no energy and incurs no cooling; the car charges in that slot instead. (Checking the 1pm/S4 skip reproduces the old "skip the 1pm session" plan: one fewer 25 kWh draw, and a long 11:15→14:00 charging window.)
+- **Supercharge after session 3.** After S3 (11:15): drive 30 min (−14%), Supercharge to target SoC along the Plaid curve, drive 30 min back (−14%), resume. The session(s) you're away for are **skipped automatically** (the 1pm/S4 by default); the trailer refills off the generator while away. The engine computes the real SC duration, the return time, and exactly which sessions the trip cost you. No cooling during the away trip.
+
+Cooling lumps apply after each session the car **actually runs** (plus the pre-session lump before the first run session); the supercharge away-trip gap gets no lump. With nothing skipped and no supercharge this is the full 7-session day; the old "A/B/C" are just three points in this configuration space.
 
 ## 9. Outputs / metrics
 
-Per scenario:
-- **Timeline chart** — x: 08:00→16:15; y: SoC %. Car SoC (solid line) and trailer SoC (dashed line). Session windows as shaded bands; reserve floor as a horizontal line. Scenario C additionally shades the drive/Supercharge period.
-- **Verdict badge** — ✅ feasible if `min(E_car) ≥ reserveFloor` for the whole day (car never lacks energy to finish a session); ❌ otherwise, annotated with the shortfall (kWh below floor) and when it first occurs.
-- **Key numbers:** lowest car SoC (% and kWh) and when; end-of-day car SoC; trailer end SoC; generator runtime (h); **gasoline used (gal)**; AC kWh generated; energy sourced from {arrival / trailer / generator / supercharger}.
-- **Scenario C extras:** SoC at Supercharger arrival, Supercharge duration, departure & return clock times, and a "back before 1pm?" indicator.
+A single result panel:
+- **Timeline chart** — x: 08:00→last session end; y: SoC %. Plaid SoC (solid green) and trailer SoC (dashed blue). Sessions that run are solid bands; skipped sessions (manual or supercharge-away) are hollow dashed bands; reserve floor as a horizontal line. Hover anywhere to read the time, Plaid SoC (% and kWh), and trailer SoC at that minute.
+- **Verdict badge** — ✅ feasible if `min(E_car) ≥ reserveFloor` for the whole day; ❌ otherwise, annotated with the shortfall (kWh below floor).
+- **Key numbers:** lowest Plaid SoC (% and kWh) and when; end-of-day SoC; trailer end SoC; **sessions run (of total)**; generator runtime (h); **gasoline used (gal)**; energy from {trailer / generator}; the list of **skipped sessions** (each tagged manual or `(SC)`). When supercharging: energy supercharged + duration, and the return time.
 
-Plus one **full-width overlay chart**: the three car-SoC curves on shared axes, color-coded, with session bands — the at-a-glance comparison.
+## 10. UI layout (top input bar + single result panel)
 
-## 10. UI layout (Layout B — top input bar)
-
-- **Top input bar:** the parameter groups from §5 as labeled, compact field groups (number inputs; sliders optional for the most-played-with values). Groups can be collapsible to manage density. A "Reset to defaults" button.
-- **Three scenario cards** in a row (A / B / C): title + one-line description, verdict badge, timeline chart, key-numbers list.
-- **Overlay chart** full-width beneath the three cards.
-- Responsive: on narrow screens the input groups and the three cards stack vertically.
+- **Top input bar:** the parameter groups from §5 as labeled, compact field groups, plus a **Supercharge** group (the "Supercharge after session 3" toggle + SC params) and a **Skip sessions** group (a checkbox per session, labeled by start time: 9:00 … 4:00). A "Reset to defaults" button. All inputs, including checkbox state, persist to localStorage.
+- **Single result panel** beneath: the verdict badge, the full-width timeline chart, and a responsive grid of the key numbers.
+- Responsive: on narrow screens the input groups and metrics reflow.
 
 ## 11. Validation / sanity checks (for implementation)
 
@@ -203,7 +202,7 @@ Build these as quick assertions or a debug panel:
 1. **Energy conservation:** `ΔE_car + ΔE_tr` over any interval ≈ `(charge delivered) − (sessions) − (cooling) + (supercharger) − (drive)`, within rounding.
 2. **Caps respected:** `E_car ≤ capacity`, `E_tr ≤ trailerCap`, both ≥ 0; delivered charge ≤ 40 kW car-side.
 3. **Default-config smoke test:** with defaults, Scenario A should show the car slowly declining session-to-session with a strong lunch recovery; record the min SoC and whether it stays feasible.
-4. **Scenario C timing:** with target 100% and defaults, verify the computed return time lands near/just after 13:00 (the design expectation that 100% is right at the lunch-window edge), and that lowering target to ~90% pulls it comfortably earlier.
+4. **Supercharge timing:** with the supercharge toggle on, target 100% and defaults, verify the computed return time lands ~13:09 (just after 1pm, so S4 is the skipped-away session), and that lowering the target pulls it earlier so nothing is skipped.
 5. **Fuel reasonableness:** generator at ~12 kW for several hours → on the order of ~5–10 gal/day; flag if wildly off.
 
 ## 12. Assumptions (open to revision)
