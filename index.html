@@ -178,7 +178,9 @@ var Sim = (function () {
         } else if (trip.phase === 'sc') {
           mode = 'SC';
           var scKw = Math.min(curvePower(eCar / cap * 100), p.scPowerCapKw);
-          var head = (cap - eCar) * 60; if (scKw > head) scKw = head;
+          var targetKwh = p.scTargetSocPct / 100 * cap;
+          var head = (Math.min(cap, targetKwh) - eCar) * 60; if (head < 0) head = 0;
+          if (scKw > head) scKw = head;
           eCar += scKw * dt; fromSupercharger += scKw * dt;
           if (eTr < tcap) { genOn = true; refillTrailer(genBusFull); }
           if (eCar / cap * 100 >= p.scTargetSocPct - 1e-9 || eCar >= cap - 1e-9) {
@@ -195,14 +197,18 @@ var Sim = (function () {
       // ---- Normal modes ----
       if (!mode) {
         var s = sessionAt(t);
-        if (s) {
+        // Scenario C: a session that started while the car was away (before it
+        // returned) is missed entirely — never drawn, even for its post-return minutes.
+        var missed = s && scenarioId === 'C' && trip.returnMin != null &&
+                     s.startMin >= s3End && s.startMin < trip.returnMin;
+        if (s && !missed) {
           mode = 'SESSION';
           var rate = p.sessionEnergyKwh / (p.sessionDurationMin / 60);
           eCar -= rate * dt;
           if (eTr < tcap) { genOn = true; refillTrailer(genBusFull); }
         } else {
-          mode = 'CHARGE';
-          coolKw = cooling[t] || 0;
+          mode = missed ? 'MISSED' : 'CHARGE';
+          coolKw = cooling[t] || 0; // 0 inside a (missed) session window
           var cd = chargeDelivery(eCar / cap * 100, eCar, eTr, p);
           var net = cd.deliverKw - coolKw;
           eCar += net * dt;
@@ -211,7 +217,6 @@ var Sim = (function () {
           fromGenerator += cd.fromGenBusKw * dt;
           genAcKwh += (cd.fromGenBusKw / p.acdcEff) * dt;
           genOn = true;
-          // surplus generator capacity tops the trailer when demand < gen output
           var surplus = genBusFull - cd.fromGenBusKw;
           if (surplus > 1e-9 && eTr < tcap) refillTrailer(surplus);
         }
@@ -230,7 +235,18 @@ var Sim = (function () {
       });
     }
 
+    // Fuel scales with actual generator AC output. It is scenario-independent until
+    // the trailer can reach 100% and let the generator idle; while the trailer never
+    // fully refills, the generator runs full-rated every minute in all scenarios.
     var fuelGal = genAcKwh * (p.fuelBurnGalPerHr / p.genPowerKw);
+    var missedSessions = [];
+    if (scenarioId === 'C' && trip.returnMin != null) {
+      for (var si = 0; si < sessions.length; si++) {
+        if (sessions[si].startMin >= s3End && sessions[si].startMin < trip.returnMin) {
+          missedSessions.push({ index: sessions[si].index, startMin: sessions[si].startMin });
+        }
+      }
+    }
     var metrics = {
       feasible: minSocKwh >= p.reserveKwh - 1e-9,
       shortfallKwh: Math.max(0, p.reserveKwh - minSocKwh),
@@ -248,6 +264,7 @@ var Sim = (function () {
           ? trip.scEndMin - trip.scStartMin : null,
         returnMin: trip.returnMin,
         backBefore1pm: (trip.returnMin != null && backBy) ? trip.returnMin <= backBy.startMin : false,
+        missedSessions: missedSessions,
       } : null,
     };
     return { timeline: timeline, metrics: metrics };

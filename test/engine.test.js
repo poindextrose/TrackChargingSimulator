@@ -220,4 +220,27 @@ test('lowering scTargetSoc pulls the return time earlier', () => {
   assert.ok(r2 < r1);
 });
 
+test('simulate C: a late return (target 100%) misses S4 entirely, no partial draw', () => {
+  var p = Sim.defaultParams(); // returns ~13:09, after S4 starts at 13:00
+  var r = Sim.simulate(p, 'C');
+  var missedStarts = r.metrics.c.missedSessions.map(function (x) { return x.startMin; });
+  assert.ok(missedStarts.indexOf(13 * 60) !== -1); // S4 recorded as missed
+  // No SESSION-mode minute anywhere inside the S4 window [13:00, 13:15)
+  r.timeline.forEach(function (pt) {
+    if (pt.min >= 13 * 60 && pt.min < 13 * 60 + p.sessionDurationMin) {
+      assert.notEqual(pt.mode, 'SESSION');
+    }
+  });
+});
+
+test('simulate C: an on-time return (target 80%) misses nothing and runs S4', () => {
+  var p = Sim.defaultParams(); p.scTargetSocPct = 80; // returns before 13:00
+  var r = Sim.simulate(p, 'C');
+  assert.equal(r.metrics.c.missedSessions.length, 0);
+  var ranS4 = r.timeline.some(function (pt) {
+    return pt.mode === 'SESSION' && pt.min >= 13 * 60 && pt.min < 13 * 60 + p.sessionDurationMin;
+  });
+  assert.ok(ranS4);
+});
+
 module.exports = { loadSim };
