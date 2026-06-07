@@ -298,4 +298,17 @@ test('simulate C: a Supercharge that never finishes misses all post-departure se
   });
 });
 
+test('SMOKE: default config produces a coherent A/B/C comparison', () => {
+  var p = Sim.defaultParams();
+  var A = Sim.simulate(p, 'A').metrics;
+  var B = Sim.simulate(p, 'B').metrics;
+  var C = Sim.simulate(p, 'C').metrics;
+  [A, B, C].forEach(function (m) {
+    assert.ok(m.endSocPct >= -200 && m.endSocPct <= 100); // defined and within sane bounds
+    assert.ok(m.fuelGal >= 0);
+  });
+  assert.ok(B.endSocKwh >= A.endSocKwh - 1e-6); // skipping a session keeps more energy
+  assert.ok(C.fromSuperchargerKwh > 0);          // C actually supercharges
+});
+
 module.exports = { loadSim };
