@@ -5,14 +5,57 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Track Charging Simulator</title>
 <style>
-/* CSS added in Task 10 */
+  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --txt:#e6e8ec; --mut:#9aa3b2;
+          --car:#22c55e; --trl:#3b82f6; --ok:#22c55e; --bad:#ef4444; --accent:#6366f1; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--txt); }
+  header { padding:10px 16px; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:16px; font-weight:650; }
+  #inputs { display:flex; flex-wrap:wrap; gap:14px; padding:12px 16px;
+            border-bottom:1px solid var(--line); background:var(--panel); }
+  .grp { display:flex; flex-direction:column; gap:6px; }
+  .grp > .grp-title { font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+                      color:var(--mut); }
+  .grp-fields { display:flex; flex-wrap:wrap; gap:8px; }
+  .fld { display:flex; flex-direction:column; gap:2px; }
+  .fld label { font-size:11px; color:var(--mut); }
+  .fld input { width:92px; padding:4px 6px; background:#0c0e12; color:var(--txt);
+               border:1px solid var(--line); border-radius:5px; font-size:13px; }
+  #reset { align-self:flex-end; padding:6px 10px; border:1px solid var(--line);
+           background:#0c0e12; color:var(--txt); border-radius:6px; cursor:pointer; }
+  #cards { display:flex; gap:12px; padding:14px 16px; flex-wrap:wrap; }
+  .card { flex:1 1 280px; min-width:280px; background:var(--panel);
+          border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .card h2 { margin:0 0 2px; font-size:14px; }
+  .card .desc { color:var(--mut); font-size:12px; margin-bottom:8px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px;
+           font-weight:650; margin-bottom:8px; }
+  .badge.ok { background:rgba(34,197,94,.15); color:var(--ok); }
+  .badge.bad { background:rgba(239,68,68,.15); color:var(--bad); }
+  canvas { width:100%; height:auto; display:block; background:#0c0e12;
+           border:1px solid var(--line); border-radius:8px; }
+  .metrics { list-style:none; margin:8px 0 0; padding:0; }
+  .metrics li { display:flex; justify-content:space-between; gap:8px; padding:2px 0;
+                border-bottom:1px dashed var(--line); font-size:12.5px; }
+  .metrics li span:last-child { color:#fff; font-variant-numeric:tabular-nums; }
+  .overlay-wrap { padding:0 16px 24px; }
+  .overlay-wrap h3 { font-size:13px; color:var(--mut); margin:0 0 6px; }
+  @media (max-width:880px){ .card{ flex-basis:100%; } }
 </style>
 </head>
 <body>
-<header><h1>Track Charging Simulator</h1></header>
+<header><h1>Track Charging Simulator — Ridge Motorsports Park HPDE</h1></header>
 <div id="inputs"></div>
-<div id="cards"></div>
-<canvas id="overlay" width="900" height="220"></canvas>
+<div id="cards">
+  <section class="card" id="cardA"></section>
+  <section class="card" id="cardB"></section>
+  <section class="card" id="cardC"></section>
+</div>
+<div class="overlay-wrap">
+  <h3>All three plans — Plaid SoC across the day</h3>
+  <canvas id="overlay" width="1200" height="240"></canvas>
+</div>
 <script>
 // SIM_ENGINE_START
 var Sim = (function () {
