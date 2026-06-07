@@ -243,4 +243,24 @@ test('simulate C: an on-time return (target 80%) misses nothing and runs S4', ()
   assert.ok(ranS4);
 });
 
+test('simulate C: every session that runs is whole (no partial draws)', () => {
+  var p = Sim.defaultParams();
+  var r = Sim.simulate(p, 'C');
+  var sessionMinutes = r.timeline.filter(function (pt) { return pt.mode === 'SESSION'; }).length;
+  var ran = Sim.buildSchedule(p, 'C').length - r.metrics.c.missedSessions.length;
+  // Each session that actually runs occupies exactly sessionDurationMin SESSION-mode minutes,
+  // so total SESSION minutes == (scheduled − missed) × duration. Guards against partial draws.
+  assert.equal(sessionMinutes, ran * p.sessionDurationMin);
+});
+
+test('simulate C: sessions whole across a long supercharge that misses two sessions', () => {
+  var p = Sim.defaultParams();
+  p.scPowerCapKw = 20; // slow SC -> returns well after 14:00, missing S4 and S5
+  var r = Sim.simulate(p, 'C');
+  assert.ok(r.metrics.c.missedSessions.length >= 2);
+  var sessionMinutes = r.timeline.filter(function (pt) { return pt.mode === 'SESSION'; }).length;
+  var ran = Sim.buildSchedule(p, 'C').length - r.metrics.c.missedSessions.length;
+  assert.equal(sessionMinutes, ran * p.sessionDurationMin);
+});
+
 module.exports = { loadSim };

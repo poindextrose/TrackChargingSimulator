@@ -239,6 +239,9 @@ var Sim = (function () {
     // the trailer can reach 100% and let the generator idle; while the trailer never
     // fully refills, the generator runs full-rated every minute in all scenarios.
     var fuelGal = genAcKwh * (p.fuelBurnGalPerHr / p.genPowerKw);
+    // Missed sessions are only reported once a return is established (returnMin set).
+    // A pathological config where the Supercharge never completes before day's end
+    // leaves returnMin null and missedSessions empty by design.
     var missedSessions = [];
     if (scenarioId === 'C' && trip.returnMin != null) {
       for (var si = 0; si < sessions.length; si++) {
