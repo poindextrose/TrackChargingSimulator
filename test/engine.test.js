@@ -115,4 +115,77 @@ test('chargeDelivery: near-full, both curve and headroom bind below 40 kW', () =
   assert.ok(r.deliverKw <= (100 - 99.8) * 60 + 1e-9); // within headroom
 });
 
+function near(a, b, tol) { return Math.abs(a - b) <= (tol == null ? 1e-6 : tol); }
+
+test('simulate A: timeline spans arrival to last session end', () => {
+  var p = Sim.defaultParams();
+  var r = Sim.simulate(p, 'A');
+  assert.equal(r.timeline[0].min, 8 * 60);
+  assert.equal(r.timeline[r.timeline.length - 1].min, 16 * 60 + 15 - 1);
+  // SoC never exceeds 100% or drops below 0
+  r.timeline.forEach(function (pt) {
+    assert.ok(pt.carPct <= 100.0001 && pt.carPct >= -0.0001);
+    assert.ok(pt.trlPct <= 100.0001 && pt.trlPct >= -0.0001);
+  });
+});
+
+test('simulate A: a session removes ~sessionEnergy from the pack', () => {
+  var p = Sim.defaultParams();
+  var r = Sim.simulate(p, 'A');
+  // energy at 8:59 (before S1) vs 9:15 (S1 end). Pure discharge during session.
+  function kwhAt(min) {
+    var pt = r.timeline.find(function (x) { return x.min === min; });
+    return pt.carPct / 100 * p.capacityKwh;
+  }
+  var drop = kwhAt(9 * 60 - 1) - kwhAt(9 * 60 + 14);
+  assert.ok(near(drop, p.sessionEnergyKwh, 0.6)); // ~25 kWh over the 15 min
+});
+
+test('simulate A: metrics are populated and self-consistent', () => {
+  var p = Sim.defaultParams();
+  var m = Sim.simulate(p, 'A').metrics;
+  assert.equal(typeof m.feasible, 'boolean');
+  assert.ok(m.minSocKwh <= Sim.effectiveArrivalKwh(p));
+  assert.ok(m.fuelGal > 0);
+  assert.ok(near(m.fuelGal, m.genAcKwh * (p.fuelBurnGalPerHr / p.genPowerKw), 1e-6));
+  assert.equal(m.fromArrivalKwh, 83);
+});
+
+test('simulate B: one fewer session and no draw at 1pm', () => {
+  var p = Sim.defaultParams();
+  var rA = Sim.simulate(p, 'A');
+  var rB = Sim.simulate(p, 'B');
+  // B should end with at least as much energy as A (skipped a 25 kWh draw)
+  assert.ok(rB.metrics.endSocKwh >= rA.metrics.endSocKwh - 1e-6);
+  // at 13:05 the car is NOT in a session in B
+  var b1305 = rB.timeline.find(function (x) { return x.min === 13 * 60 + 5; });
+  assert.equal(b1305.mode !== 'SESSION', true);
+});
+
+test('simulate C: drives away after S3, supercharges, returns; records timing', () => {
+  var p = Sim.defaultParams();
+  var r = Sim.simulate(p, 'C');
+  assert.ok(r.metrics.c);
+  assert.ok(r.metrics.c.scDurationMin > 0);
+  // car leaves right after S3 ends (11:15)
+  var awayPt = r.timeline.find(function (x) { return x.min === 11 * 60 + 20; });
+  assert.ok(awayPt.mode === 'DRIVE' || awayPt.mode === 'SC');
+  // supercharge brings car to the target SoC at some point
+  var maxPct = Math.max.apply(null, r.timeline.map(function (x) { return x.carPct; }));
+  assert.ok(maxPct >= p.scTargetSocPct - 0.5);
+  // returnMin recorded; backBefore1pm boolean present
+  assert.equal(typeof r.metrics.c.backBefore1pm, 'boolean');
+});
+
+test('simulate C: no cooling debit during the away (S3->S4) window', () => {
+  var p = Sim.defaultParams();
+  var r = Sim.simulate(p, 'C');
+  r.timeline.forEach(function (pt) {
+    if (pt.mode === 'DRIVE' || pt.mode === 'SC') {
+      assert.notEqual(pt.coolingKw, undefined);
+      assert.equal(pt.coolingKw, 0);
+    }
+  });
+});
+
 module.exports = { loadSim };

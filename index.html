@@ -108,7 +108,150 @@ var Sim = (function () {
     return sessions;
   }
 
-  function simulate(p, scenarioId) { return { timeline: [], metrics: {} }; }
+  function simulate(p, scenarioId) {
+    var dt = 1 / 60;
+    var sessions = buildSchedule(p, scenarioId);
+    var startMin = p.arrivalTimeMin;
+    var endMin = sessions[sessions.length - 1].endMin;
+    var cap = p.capacityKwh, tcap = p.trailerCapKwh;
+    var genBusFull = p.genPowerKw * p.acdcEff;
+
+    // Per-minute cooling power (kW), nonzero only inside post-session gaps.
+    // Scenario C: skip the gap after the 3rd session (replaced by SC trip).
+    var cooling = new Array(endMin + 1);
+    for (var z = 0; z <= endMin; z++) cooling[z] = 0;
+    for (var i = 0; i < sessions.length - 1; i++) {
+      var gapStart = sessions[i].endMin, gapEnd = sessions[i + 1].startMin;
+      if (scenarioId === 'C' && i === 2) continue;
+      var gapHours = (gapEnd - gapStart) / 60;
+      var kw = p.coolingPerGapKwh / gapHours;
+      for (var m = gapStart; m < gapEnd; m++) cooling[m] = kw;
+    }
+
+    var eCar = effectiveArrivalKwh(p);
+    var eTr = tcap;
+    var genRuntimeMin = 0, genAcKwh = 0;
+    var fromTrailer = 0, fromGenerator = 0, fromSupercharger = 0;
+    var minSocKwh = eCar, minSocAtMin = startMin;
+    var timeline = [];
+
+    // Scenario C trip state machine.
+    var trip = { phase: scenarioId === 'C' ? 'before' : 'off',
+                 driveEndMin: null, scStartMin: null, scEndMin: null,
+                 scArrivalSocPct: null, returnMin: null };
+    var depSession = sessions[2];
+    var s3End = depSession ? depSession.endMin : Infinity;
+    var backBy = sessions[3];
+    var driveDrainKw = (p.driveConsumptionPct / 100 * cap) / (p.driveTimeMin / 60);
+
+    function sessionAt(t) {
+      for (var s = 0; s < sessions.length; s++) {
+        if (t >= sessions[s].startMin && t < sessions[s].endMin) return sessions[s];
+      }
+      return null;
+    }
+    function refillTrailer(busKw) {
+      // generator dumps up to busKw onto the trailer (capped by headroom)
+      var headKw = (tcap - eTr) * 60;
+      var into = Math.min(busKw, headKw);
+      if (into < 0) into = 0;
+      eTr += into * dt;
+      genAcKwh += (into / p.acdcEff) * dt;
+      fromGenerator += into * dt;
+      return into;
+    }
+
+    for (var t = startMin; t < endMin; t++) {
+      var mode = null, coolKw = 0, genOn = false;
+
+      // ---- Scenario C overrides ----
+      if (trip.phase !== 'off' && trip.phase !== 'done') {
+        if (trip.phase === 'before' && t >= s3End) {
+          trip.phase = 'out'; trip.driveEndMin = t + p.driveTimeMin;
+        }
+        if (trip.phase === 'out') {
+          mode = 'DRIVE';
+          eCar -= driveDrainKw * dt;
+          if (eTr < tcap) { genOn = true; refillTrailer(genBusFull); }
+          if (t + 1 >= trip.driveEndMin) { trip.phase = 'sc'; trip.scStartMin = t + 1;
+            trip.scArrivalSocPct = eCar / cap * 100; }
+        } else if (trip.phase === 'sc') {
+          mode = 'SC';
+          var scKw = Math.min(curvePower(eCar / cap * 100), p.scPowerCapKw);
+          var head = (cap - eCar) * 60; if (scKw > head) scKw = head;
+          eCar += scKw * dt; fromSupercharger += scKw * dt;
+          if (eTr < tcap) { genOn = true; refillTrailer(genBusFull); }
+          if (eCar / cap * 100 >= p.scTargetSocPct - 1e-9 || eCar >= cap - 1e-9) {
+            trip.phase = 'back'; trip.scEndMin = t + 1; trip.driveEndMin = t + 1 + p.driveTimeMin;
+          }
+        } else if (trip.phase === 'back') {
+          mode = 'DRIVE';
+          eCar -= driveDrainKw * dt;
+          if (eTr < tcap) { genOn = true; refillTrailer(genBusFull); }
+          if (t + 1 >= trip.driveEndMin) { trip.phase = 'done'; trip.returnMin = t + 1; }
+        }
+      }
+
+      // ---- Normal modes ----
+      if (!mode) {
+        var s = sessionAt(t);
+        if (s) {
+          mode = 'SESSION';
+          var rate = p.sessionEnergyKwh / (p.sessionDurationMin / 60);
+          eCar -= rate * dt;
+          if (eTr < tcap) { genOn = true; refillTrailer(genBusFull); }
+        } else {
+          mode = 'CHARGE';
+          coolKw = cooling[t] || 0;
+          var cd = chargeDelivery(eCar / cap * 100, eCar, eTr, p);
+          var net = cd.deliverKw - coolKw;
+          eCar += net * dt;
+          eTr -= cd.fromTrailerBusKw * dt;
+          fromTrailer += cd.fromTrailerBusKw * dt;
+          fromGenerator += cd.fromGenBusKw * dt;
+          genAcKwh += (cd.fromGenBusKw / p.acdcEff) * dt;
+          genOn = true;
+          // surplus generator capacity tops the trailer when demand < gen output
+          var surplus = genBusFull - cd.fromGenBusKw;
+          if (surplus > 1e-9 && eTr < tcap) refillTrailer(surplus);
+        }
+      }
+
+      if (eCar > cap) eCar = cap;
+      if (eCar < 0) eCar = 0;
+      if (eTr > tcap) eTr = tcap;
+      if (eTr < 0) eTr = 0;
+      if (genOn) genRuntimeMin++;
+      if (eCar < minSocKwh) { minSocKwh = eCar; minSocAtMin = t; }
+
+      timeline.push({
+        min: t, mode: mode, coolingKw: coolKw,
+        carPct: eCar / cap * 100, trlPct: eTr / tcap * 100,
+      });
+    }
+
+    var fuelGal = genAcKwh * (p.fuelBurnGalPerHr / p.genPowerKw);
+    var metrics = {
+      feasible: minSocKwh >= p.reserveKwh - 1e-9,
+      shortfallKwh: Math.max(0, p.reserveKwh - minSocKwh),
+      minSocKwh: minSocKwh, minSocPct: minSocKwh / cap * 100, minSocAtMin: minSocAtMin,
+      endSocKwh: eCar, endSocPct: eCar / cap * 100,
+      trailerEndKwh: eTr, trailerEndPct: eTr / tcap * 100,
+      genRuntimeHr: genRuntimeMin / 60, fuelGal: fuelGal, genAcKwh: genAcKwh,
+      fromArrivalKwh: effectiveArrivalKwh(p),
+      fromTrailerKwh: fromTrailer, fromGeneratorKwh: fromGenerator,
+      fromSuperchargerKwh: fromSupercharger,
+      c: scenarioId === 'C' ? {
+        scArrivalSocPct: trip.scArrivalSocPct,
+        scStartMin: trip.scStartMin, scEndMin: trip.scEndMin,
+        scDurationMin: (trip.scEndMin != null && trip.scStartMin != null)
+          ? trip.scEndMin - trip.scStartMin : null,
+        returnMin: trip.returnMin,
+        backBefore1pm: (trip.returnMin != null && backBy) ? trip.returnMin <= backBy.startMin : false,
+      } : null,
+    };
+    return { timeline: timeline, metrics: metrics };
+  }
   return { PLAID_V3_CURVE: PLAID_V3_CURVE, curvePower: curvePower,
            defaultParams: defaultParams, effectiveArrivalKwh: effectiveArrivalKwh,
            buildSchedule: buildSchedule, chargeDelivery: chargeDelivery,
