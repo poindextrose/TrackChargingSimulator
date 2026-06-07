@@ -1,5 +1,8 @@
 # Brainstorming visual-companion scratch (not part of the project)
 .superpowers/
 
+# Local tooling / preview config (not part of the deliverable)
+.claude/
+
 # macOS
 .DS_Store
