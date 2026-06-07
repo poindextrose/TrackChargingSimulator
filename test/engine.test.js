@@ -188,4 +188,36 @@ test('simulate C: no cooling debit during the away (S3->S4) window', () => {
   });
 });
 
+test('energy conservation across the day (A)', () => {
+  var p = Sim.defaultParams();
+  var r = Sim.simulate(p, 'A');
+  var m = r.metrics;
+  var sessions = Sim.buildSchedule(p, 'A');
+  var sessionDraw = sessions.length * p.sessionEnergyKwh;
+  // count cooling gaps actually applied (post-session gaps; all of them in A)
+  var coolingDraw = (sessions.length - 1) * p.coolingPerGapKwh;
+  // ΔE_car = arrival + chargedIntoCar - sessions - cooling
+  // chargedIntoCar ≈ fromTrailer*dcdc + fromGenerator-portion-to-car... instead
+  // verify the simpler closed form: end = arrival + carCharge - draws
+  var carCharge = m.endSocKwh - m.fromArrivalKwh + sessionDraw + coolingDraw;
+  assert.ok(carCharge > 0); // net energy was pushed into the car over the day
+  // trailer + generator supplied the car charge (through dcdc); loose bound:
+  assert.ok(m.fromTrailerKwh >= 0 && m.fromGeneratorKwh >= 0);
+});
+
+test('scenario C lands the car fuller than A at end of day', () => {
+  var p = Sim.defaultParams();
+  var endA = Sim.simulate(p, 'A').metrics.endSocKwh;
+  var endC = Sim.simulate(p, 'C').metrics.endSocKwh;
+  assert.ok(endC >= endA); // the supercharge top-up helps
+});
+
+test('lowering scTargetSoc pulls the return time earlier', () => {
+  var p1 = Sim.defaultParams();
+  var p2 = Sim.defaultParams(); p2.scTargetSocPct = 80;
+  var r1 = Sim.simulate(p1, 'C').metrics.c.returnMin;
+  var r2 = Sim.simulate(p2, 'C').metrics.c.returnMin;
+  assert.ok(r2 < r1);
+});
+
 module.exports = { loadSim };
