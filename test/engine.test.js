@@ -75,3 +75,33 @@ test('buildSchedule B: drops the 1pm session', () => {
 test('buildSchedule C: keeps all 7 sessions', () => {
   assert.equal(Sim.buildSchedule(Sim.defaultParams(), 'C').length, 7);
 });
+
+test('chargeDelivery: mid-SoC is governed by the 40 kW DC-DC cap', () => {
+  var p = Sim.defaultParams();
+  var r = Sim.chargeDelivery(50, 60, 50, p); // curve(50)=148 >> 40
+  assert.ok(Math.abs(r.deliverKw - 40) < 1e-6);
+  // bus need = 40/0.95 = 42.105; gen bus = 13*0.94 = 12.22; trailer covers rest
+  assert.ok(Math.abs(r.fromGenBusKw - 12.22) < 1e-3);
+  assert.ok(Math.abs(r.fromTrailerBusKw - (40/0.95 - 12.22)) < 1e-3);
+});
+
+test('chargeDelivery: near 100% the curve caps delivery below 40 kW', () => {
+  var p = Sim.defaultParams();
+  var r = Sim.chargeDelivery(95, 95, 50, p); // curve(95)=27 < 40
+  assert.ok(Math.abs(r.deliverKw - 27) < 1e-6);
+});
+
+test('chargeDelivery: empty trailer falls back to generator-only', () => {
+  var p = Sim.defaultParams();
+  var r = Sim.chargeDelivery(50, 60, 0, p); // trailer empty
+  // only generator bus available: 12.22 kW -> deliver 12.22*0.95
+  assert.ok(Math.abs(r.fromTrailerBusKw - 0) < 1e-6);
+  assert.ok(Math.abs(r.deliverKw - 12.22 * 0.95) < 1e-2);
+});
+
+test('chargeDelivery: respects headroom near full pack', () => {
+  var p = Sim.defaultParams();
+  // 0.1 kWh of headroom -> at most 0.1*60 = 6 kW this minute
+  var r = Sim.chargeDelivery(50, 99.9, 50, p);
+  assert.ok(r.deliverKw <= 6 + 1e-6);
+});

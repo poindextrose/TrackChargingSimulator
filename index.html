@@ -67,6 +67,27 @@ var Sim = (function () {
     return (p.arrivalSocNoTrailerPct - p.towingCostPct) / 100 * p.capacityKwh;
   }
 
+  function chargeDelivery(socPct, eCar, eTr, p) {
+    var headroomKw = (p.capacityKwh - eCar) * 60; // kWh headroom as 1-min power
+    if (headroomKw < 0) headroomKw = 0;
+    var acceptKw = curvePower(socPct);
+    var deliver = Math.min(p.dcPowerKw, acceptKw, headroomKw);
+    if (deliver < 0) deliver = 0;
+
+    var busNeed = deliver / p.dcdcEff;
+    var genBus = p.genPowerKw * p.acdcEff;
+    var fromGenBus = Math.min(genBus, busNeed);
+    var fromTrailerBus = busNeed - fromGenBus;
+
+    var trailerAvailKw = eTr * 60; // kWh available as 1-min power
+    if (fromTrailerBus > trailerAvailKw) {
+      fromTrailerBus = trailerAvailKw;
+      var busActual = fromGenBus + fromTrailerBus;
+      deliver = Math.min(deliver, busActual * p.dcdcEff);
+    }
+    return { deliverKw: deliver, fromGenBusKw: fromGenBus, fromTrailerBusKw: fromTrailerBus };
+  }
+
   function buildSchedule(p, scenarioId) {
     var sessions = [];
     var hourMin = p.firstSessionMin;
@@ -89,7 +110,8 @@ var Sim = (function () {
   function simulate(p, scenarioId) { return { timeline: [], metrics: {} }; }
   return { PLAID_V3_CURVE: PLAID_V3_CURVE, curvePower: curvePower,
            defaultParams: defaultParams, effectiveArrivalKwh: effectiveArrivalKwh,
-           buildSchedule: buildSchedule, simulate: simulate };
+           buildSchedule: buildSchedule, chargeDelivery: chargeDelivery,
+           simulate: simulate };
 })();
 // SIM_ENGINE_END
 </script>
