@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track Charging Simulator</title>
+<style>
+/* CSS added in Task 10 */
+</style>
+</head>
+<body>
+<header><h1>Track Charging Simulator</h1></header>
+<div id="inputs"></div>
+<div id="cards"></div>
+<canvas id="overlay" width="900" height="220"></canvas>
+<script>
+// SIM_ENGINE_START
+var Sim = (function () {
+  'use strict';
+  function simulate(p, scenarioId) { return { timeline: [], metrics: {} }; }
+  return { simulate };
+})();
+// SIM_ENGINE_END
+</script>
+<script>
+// UI_START  (filled in Tasks 10-12)
+// UI_END
+</script>
+</body>
+</html>
