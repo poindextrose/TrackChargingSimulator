@@ -263,4 +263,28 @@ test('simulate C: sessions whole across a long supercharge that misses two sessi
   assert.equal(sessionMinutes, ran * p.sessionDurationMin);
 });
 
+test('simulate A: a starved generator runs the car dead and is infeasible', () => {
+  var p = Sim.defaultParams();
+  p.genPowerKw = 3; // cannot keep up; trailer depletes and the car runs out
+  var r = Sim.simulate(p, 'A');
+  assert.equal(r.metrics.feasible, false);
+  assert.ok(r.metrics.minSocKwh < 0, 'true deficit must be negative, not clamped at 0');
+  assert.ok(r.metrics.shortfallKwh > 0);
+  assert.ok(Math.abs(r.metrics.shortfallKwh - (p.reserveKwh - r.metrics.minSocKwh)) < 1e-9);
+});
+
+test('simulate A: default config stays feasible with positive min SoC', () => {
+  var r = Sim.simulate(Sim.defaultParams(), 'A');
+  assert.equal(r.metrics.feasible, true);
+  assert.ok(r.metrics.minSocKwh > 0);
+});
+
+test('simulate: a reserve floor makes a marginal day infeasible', () => {
+  var p = Sim.defaultParams(); // default A min SoC ~12.4 kWh
+  p.reserveKwh = 20;           // demand a 20 kWh buffer -> now infeasible
+  var r = Sim.simulate(p, 'A');
+  assert.equal(r.metrics.feasible, false);
+  assert.ok(r.metrics.shortfallKwh > 0);
+});
+
 module.exports = { loadSim };

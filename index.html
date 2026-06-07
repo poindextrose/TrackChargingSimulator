@@ -220,7 +220,7 @@ var Sim = (function () {
             trip.scArrivalSocPct = eCar / cap * 100; }
         } else if (trip.phase === 'sc') {
           mode = 'SC';
-          var scKw = Math.min(curvePower(eCar / cap * 100), p.scPowerCapKw);
+          var scKw = Math.min(curvePower(Math.max(0, eCar) / cap * 100), p.scPowerCapKw);
           var targetKwh = p.scTargetSocPct / 100 * cap;
           var head = (Math.min(cap, targetKwh) - eCar) * 60; if (head < 0) head = 0;
           if (scKw > head) scKw = head;
@@ -252,7 +252,7 @@ var Sim = (function () {
         } else {
           mode = missed ? 'MISSED' : 'CHARGE';
           coolKw = cooling[t] || 0; // 0 inside a (missed) session window
-          var cd = chargeDelivery(eCar / cap * 100, eCar, eTr, p);
+          var cd = chargeDelivery(Math.max(0, eCar) / cap * 100, eCar, eTr, p);
           var net = cd.deliverKw - coolKw;
           eCar += net * dt;
           eTr -= cd.fromTrailerBusKw * dt;
@@ -266,7 +266,6 @@ var Sim = (function () {
       }
 
       if (eCar > cap) eCar = cap;
-      if (eCar < 0) eCar = 0;
       if (eTr > tcap) eTr = tcap;
       if (eTr < 0) eTr = 0;
       if (genOn) genRuntimeMin++;
@@ -507,7 +506,7 @@ var UI = (function () {
       ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.setLineDash(dashed ? [4, 3] : []);
       ctx.beginPath();
       result.timeline.forEach(function (pt, i) {
-        var xx = s.X(pt.min), yy = s.Y(getY(pt));
+        var xx = s.X(pt.min), yy = s.Y(Math.max(0, Math.min(100, getY(pt))));
         if (i) ctx.lineTo(xx, yy); else ctx.moveTo(xx, yy);
       });
       ctx.stroke(); ctx.setLineDash([]);
@@ -536,7 +535,7 @@ var UI = (function () {
     ['A', 'B', 'C'].forEach(function (id) {
       ctx.strokeStyle = colors[id]; ctx.lineWidth = 1.8; ctx.beginPath();
       results[id].timeline.forEach(function (pt, i) {
-        var xx = sc.X(pt.min), yy = sc.Y(pt.carPct);
+        var xx = sc.X(pt.min), yy = sc.Y(Math.max(0, Math.min(100, pt.carPct)));
         if (i) ctx.lineTo(xx, yy); else ctx.moveTo(xx, yy);
       });
       ctx.stroke();
