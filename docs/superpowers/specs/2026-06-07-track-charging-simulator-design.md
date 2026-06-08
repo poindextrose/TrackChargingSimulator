@@ -68,7 +68,8 @@ All live; changing any re-runs the simulation. Grouped in the top input bar. Plu
 | Plaid capacity | 100 | kWh | Usable pack; SoC% = energy / capacity; charge ceiling |
 | Arrival SoC (no trailer) | 87 | % | SoC the Plaid would arrive at if driven in *without* the trailer |
 | Towing energy cost | 4 | % of capacity | Extra battery spent towing the trailer in. Effective arrival SoC = 87 − 4 = **83% (83 kWh)** |
-| Energy per session | 25 | kWh | Drawn from pack during a session (includes on-track cooling) |
+| Energy per session | 35 | kWh | Drawn from pack during a session (includes on-track cooling) |
+| Session end reserve | 20 | % | Plaid SoC required at every on-track session end — the **feasibility trigger** (see §9) |
 | Session duration | 15 | min | |
 | Cooling per gap | 6 | kWh | Track-mode cooling debited per post-session gap |
 | Pre-session cooling | 5 | kWh | Cooling lump over the arrival→first-session window (heat from the drive/tow in) |
@@ -87,7 +88,6 @@ All live; changing any re-runs the simulation. Grouped in the top input bar. Plu
 |-------|---------|------|-------|
 | DC charge power | 40 | kW | DC-DC limit, **delivered into the car** |
 | DC-DC efficiency | 95 | % | Bus draw = 40 / 0.95 ≈ 42.1 kW to deliver 40 kW |
-| Reserve floor | 0 | kWh | Min car energy for "feasible" (adjustable) |
 
 ### Supercharge run (when the "Supercharge after session 3" toggle is on)
 | Param | Default | Unit | Notes |
@@ -188,13 +188,13 @@ Cooling lumps apply after each session the car **actually runs** (plus the pre-s
 
 A single result panel:
 - **Timeline chart** — x: 08:00→last session end; y: SoC %. Plaid SoC (solid green) and trailer SoC (dashed blue). Sessions that run are solid bands; skipped sessions (manual or supercharge-away) are hollow dashed bands; reserve floor as a horizontal line. Hover anywhere to read the time, Plaid SoC (% and kWh), and trailer SoC at that minute.
-- **Verdict badge** — ✅ feasible if `min(E_car) ≥ reserveFloor` for the whole day; ❌ otherwise, annotated with the shortfall (kWh below floor).
+- **Verdict badge** — ✅ feasible if the Plaid holds ≥ the **session-end reserve** (default 20% of capacity) at the end of *every on-track session*; ❌ otherwise, annotated with the shortfall (kWh below the reserve). Feasibility is keyed to session ends (the lowest on-track SoC), so the off-track Supercharger drive dip does not count. The "Lowest at session end" metric reports that binding low.
 - **Key numbers:** lowest Plaid SoC (% and kWh) and when; end-of-day SoC; trailer end SoC; **sessions run (of total)**; generator runtime (h); **gasoline used (gal)**; energy from {trailer / generator}; the list of **skipped sessions** (each tagged manual or `(SC)`). When supercharging: energy supercharged + duration, and the return time.
 - **Per-session table** (below the panel): one row per session — start time, status (Run / Skipped / Supercharge), and the Plaid and trailer SoC from the session's start to its end (read off the timeline).
 
 ## 10. UI layout (top input bar + single result panel + session table)
 
-- **Top input bar:** the parameter groups from §5 as labeled, compact field groups, plus a **Supercharge** group (the "Supercharge after session 3" toggle + SC params) and a **Sessions** group (a *run* checkbox per session, labeled by start time: 9:00 … 4:00; the 1pm box locks off while supercharging). A "Reset to defaults" button. All inputs, including checkbox state, persist to localStorage.
+- **Top input bar** — groups laid out in fixed rows: ① **Plaid** (incl. the session-end reserve), ② **Trailer & generator** (incl. min trailer SoC), ③ **Charging** + **Supercharge** (the toggle + SC params), ④ **Day** + **Sessions** (a *run* checkbox per session, 9:00 … 4:00; the 1pm box locks off while supercharging). A "Reset to defaults" button. All inputs, including checkbox state, persist to localStorage.
 - **Single result panel** beneath: the verdict badge, the full-width timeline chart, and a responsive grid of the key numbers; then the per-session SoC table.
 - Responsive: on narrow screens the input groups and metrics reflow.
 

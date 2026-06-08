@@ -54,6 +54,9 @@ test('defaultParams matches the spec defaults (supercharge on, 1pm skipped)', ()
   assert.equal(p.genPowerKw, 13);
   assert.equal(p.trailerCapKwh, 50);
   assert.equal(p.minTrailerSocPct, 5);
+  assert.equal(p.sessionEnergyKwh, 35);
+  assert.equal(p.sessionEndReservePct, 20);
+  assert.equal('reserveKwh' in p, false); // renamed to sessionEndReservePct
   assert.equal(p.supercharge, true);
   assert.equal(p.skipS4, true); // 1pm unchecked by default
   [1, 2, 3, 5, 6, 7].forEach(i => assert.equal(p['skipS' + i], false));
@@ -153,13 +156,27 @@ test('configs: full day runs 7; skip-1pm runs 6 and ends fuller; supercharge run
   assert.equal(full.sessionsRun, 7);
   assert.equal(skip.sessionsRun, 6);
   assert.equal(sc.sessionsRun, 6);
-  assert.ok(skip.endSocKwh > full.endSocKwh);  // skipping a 25 kWh draw helps
+  assert.ok(skip.endSocKwh > full.endSocKwh);  // skipping a 35 kWh draw helps
   assert.ok(sc.fromSuperchargerKwh > 0 && sc.sc);
-  assert.equal(sc.sc.returnMin, 13 * 60 + 9);  // 100% target returns 13:09
-  // anchors with minTrailerSocPct = 5
-  assert.ok(near(full.minSocPct, 5.0, 0.6), 'full day min ~5%');
-  assert.ok(near(skip.endSocPct, 36.0, 0.6), 'skip-1pm end ~36%');
-  assert.ok(near(sc.endSocPct, 58.4, 0.6), 'supercharge end ~58%');
+  assert.ok(sc.sc.returnMin > 13 * 60 && sc.sc.returnMin < 14 * 60); // returns early afternoon, before 2pm
+  // with 35 kWh sessions the trailer-only plans can't keep up (infeasible);
+  // the supercharge plan clears the 20% session-end reserve (lowest session-end ~27%).
+  assert.equal(full.feasible, false);
+  assert.equal(sc.feasible, true);
+  assert.ok(near(sc.minSocPct, 27.0, 1.0), 'supercharge lowest session-end ~27%');
+});
+
+test('the feasibility low is taken at a session end (on-track), not the supercharge drive dip', () => {
+  var r = Sim.simulate(Sim.defaultParams());
+  var pt = r.timeline.find(x => x.min === r.metrics.minSocAtMin);
+  assert.equal(pt.mode, 'SESSION');
+});
+
+test('the session-end reserve is the feasibility trigger', () => {
+  assert.equal(Sim.simulate(Sim.defaultParams()).metrics.feasible, true); // clears the 20% reserve
+  var r = Sim.simulate(cfg({ sessionEndReservePct: 30 }));                 // demand 30% at session ends
+  assert.equal(r.metrics.feasible, false);
+  assert.ok(r.metrics.shortfallKwh > 0);
 });
 
 test('supercharge ⟺ 1pm exclusive: toggling skipS4 under supercharge has no effect (bug regression)', () => {
@@ -278,23 +295,18 @@ test('pre-session cooling lump is applied to the arrival window (full day)', () 
 });
 
 test('a starved generator runs the car dead and is infeasible', () => {
-  var r = Sim.simulate(fullDay({ genPowerKw: 3 }));
+  var p = fullDay({ genPowerKw: 3 });
+  var r = Sim.simulate(p);
   assert.equal(r.metrics.feasible, false);
   assert.ok(r.metrics.minSocKwh < 0, 'true deficit must be negative, not clamped at 0');
-  assert.ok(r.metrics.shortfallKwh > 0);
-  assert.ok(Math.abs(r.metrics.shortfallKwh - (0 - r.metrics.minSocKwh)) < 1e-9);
+  var reserve = p.sessionEndReservePct / 100 * p.capacityKwh;
+  assert.ok(Math.abs(r.metrics.shortfallKwh - (reserve - r.metrics.minSocKwh)) < 1e-9);
 });
 
-test('the default (supercharge) day stays feasible with positive min SoC', () => {
+test('the default (supercharge) day stays feasible, clearing the session-end reserve', () => {
   var r = Sim.simulate(Sim.defaultParams());
   assert.equal(r.metrics.feasible, true);
-  assert.ok(r.metrics.minSocKwh > 0);
-});
-
-test('a reserve floor makes a marginal full day infeasible', () => {
-  var r = Sim.simulate(fullDay({ reserveKwh: 20 })); // full-day min ~5 kWh < 20
-  assert.equal(r.metrics.feasible, false);
-  assert.ok(r.metrics.shortfallKwh > 0);
+  assert.ok(r.metrics.minSocKwh > 20); // > 20% reserve of a 100 kWh pack
 });
 
 test('no generator (0 kW) yields zero fuel and finite results', () => {
