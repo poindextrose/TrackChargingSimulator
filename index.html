@@ -198,7 +198,7 @@
   .icon-btn.sess-remove:hover { color:var(--bad); border-color:rgba(239,68,68,.45); }
   .sess-table-wrap { margin-top:6px; overflow-x:auto; max-width:100%; }
   /* auto layout: Activity column tracks content (short charger names = less gap before For) */
-  table.sess-table { width:max-content; max-width:100%; border-collapse:collapse; font-size:12px;
+  table.sess-table { width:max-content; max-width:none; border-collapse:collapse; font-size:12px;
                      table-layout:auto; }
   table.sess-table col.c-start { width:5.75rem; }
   table.sess-table col.c-act { width:auto; }
@@ -210,14 +210,22 @@
   table.sess-table.no-trailer th:nth-child(5),
   table.sess-table.no-trailer td:nth-child(5) { display:none; }
   table.sess-table col.c-actn { width:2.25rem; }
+  /* Activity column must grow for offsite stop controls (not clip into For / SoC) */
   table.sess-table th:nth-child(2),
-  table.sess-table td:nth-child(2) { padding-right:12px; max-width:16rem; }
+  table.sess-table td:nth-child(2) {
+    padding-right:14px; max-width:none; overflow:visible;
+  }
   table.sess-table th { text-align:left; color:var(--mut); font-weight:600; font-size:10px;
                         text-transform:uppercase; letter-spacing:.04em; padding:4px 8px 6px 0;
                         border-bottom:1px solid var(--line); white-space:nowrap; }
   table.sess-table td { padding:4px 8px 4px 0; border-bottom:1px solid var(--line);
-                        vertical-align:middle; font-variant-numeric:tabular-nums; white-space:nowrap; }
+                        vertical-align:middle; font-variant-numeric:tabular-nums; white-space:nowrap;
+                        overflow:visible; }
   table.sess-table td:first-child { overflow:visible; }
+  table.sess-table tr.sess-charge-row td.sess-act,
+  table.sess-table tr.sess-charge-row td.ch-act {
+    position:relative; z-index:3; overflow:visible;
+  }
   /* Intermediate (drive / charge / wait): smaller, normal weight; center computed start times */
   table.sess-table tr.sess-drive td:first-child,
   table.sess-table tr.sess-charge-row td:first-child,
@@ -296,12 +304,14 @@
   }
   table.sess-table .sess-offsite-opts {
     display:inline-flex; align-items:center; gap:5px; margin-left:6px; vertical-align:middle;
+    position:relative; z-index:4; pointer-events:auto;
   }
-  table.sess-table .sess-offsite-opts[hidden] { display:none; }
+  table.sess-table .sess-offsite-opts[hidden] { display:none !important; }
   table.sess-table .sess-offsite-opts input[type="number"] {
-    width:3.25rem; padding:2px 4px; background:#0c0e12; color:var(--txt);
+    width:3.5rem; padding:2px 4px; background:#0c0e12; color:var(--txt);
     border:1px solid var(--line); border-radius:5px; font-size:11.5px;
-    text-align:right; -moz-appearance:textfield;
+    text-align:right; -moz-appearance:textfield; position:relative; z-index:4;
+    pointer-events:auto;
   }
   table.sess-table .sess-offsite-opts input[type="number"]::-webkit-outer-spin-button,
   table.sess-table .sess-offsite-opts input[type="number"]::-webkit-inner-spin-button {
