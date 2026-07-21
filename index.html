@@ -1585,23 +1585,9 @@ var UI = (function () {
       var active = findProfile(state[m.listKey] || [], activeId);
       if (active) {
         out[m.activeKey] = active.id;
-        out[m.activeKey.replace(/Id$/, 'Name')] = active.name;
-        // e.g. activeCarId + activeCarName
+        out[m.activeKey.replace(/Id$/, 'Name')] = active.name; // activeCarName, etc.
       }
     });
-    // Explicit name keys for clarity / older tooling
-    if (out.activeCarId != null) {
-      var ac = findProfile(state.cars || [], out.activeCarId);
-      if (ac) out.activeCarName = ac.name;
-    }
-    if (out.activeTrackId != null) {
-      var at = findProfile(state.tracks || [], out.activeTrackId);
-      if (at) out.activeTrackName = at.name;
-    }
-    if (out.activeSiteId != null) {
-      var as_ = findProfile(state.sites || [], out.activeSiteId);
-      if (as_) out.activeSiteName = as_.name;
-    }
     return out;
   }
   function parseImport(raw) {
