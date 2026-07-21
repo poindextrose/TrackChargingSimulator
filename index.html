@@ -59,12 +59,22 @@
   .track-panel .section-head {
     padding-bottom:6px; margin-bottom:6px; border-bottom:1px dashed var(--line);
   }
-  .track-panel .section-head .grp-title { font-size:12px; font-weight:650; }
+  .track-panel .section-head .grp-title { font-size:11px; font-weight:600; color:var(--mut); }
   .track-panel .section-head select { flex:0 1 180px; width:180px; max-width:240px; font-size:12px; }
   .track-panel .panel-title {
     margin:0 0 8px; font-size:12px; font-weight:650; text-transform:uppercase;
     letter-spacing:.04em; color:var(--txt);
   }
+  .track-panel .panel-enable {
+    display:flex; align-items:center; gap:8px; margin:0 0 8px; cursor:pointer;
+    font-size:12px; font-weight:650; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--txt); user-select:none;
+  }
+  .track-panel .panel-enable input { margin:0; width:auto; accent-color:var(--accent); cursor:pointer; }
+  .track-panel.is-off .track-panel-body { opacity:.4; pointer-events:none; }
+  .track-panel.is-off .section-head { opacity:.4; pointer-events:none; }
+  /* Keep enable checkbox interactive when panel is off */
+  .track-panel.is-off > .panel-enable { opacity:1; pointer-events:auto; }
   .track-panel .subgrp:first-of-type { margin-top:0; padding-top:0; border-top:none; }
   /* EV / TRACK: profile select + ⋯ menu */
   .section-head { display:flex; flex-wrap:nowrap; gap:6px; align-items:center; min-width:0;
@@ -557,6 +567,9 @@ var Sim = (function () {
     sessionDurationMin: 20,
     coolingPerGapKwh: 6,
     preSessionCoolingKwh: 5,
+    // Track feature toggles (also stored on track profiles)
+    siteChargingEnabled: true,
+    offsiteChargingEnabled: true,
     // Site sources: portable gen+battery OR track EV connector (mutually exclusive modes).
     genEnabled: true,
     batteryEnabled: true,
@@ -606,6 +619,9 @@ var Sim = (function () {
 
   /** Effective site sources: grid EV connector is exclusive of gen/battery. */
   function siteSources(p) {
+    if (p && p.siteChargingEnabled === false) {
+      return { grid: false, gen: false, battery: false };
+    }
     var grid = !!p.gridEnabled;
     return {
       grid: grid,
@@ -615,13 +631,18 @@ var Sim = (function () {
   }
   /** True when any site source can deliver energy to the car. */
   function siteCanCharge(p) {
+    if (p && p.siteChargingEnabled === false) return false;
     var src = siteSources(p);
     return !!(src.grid || src.gen || src.battery);
   }
-  /** Coerce onsite → none when no site charging is configured. */
+  function offsiteChargingEnabled(p) {
+    return !(p && p.offsiteChargingEnabled === false);
+  }
+  /** Coerce onsite/offsite → none when that feature is disabled on the track. */
   function effectiveGapMode(mode, p) {
     mode = normalizeGapAction(mode);
     if (mode === 'onsite' && !siteCanCharge(p)) return 'none';
+    if (mode === 'offsite' && !offsiteChargingEnabled(p)) return 'none';
     return mode;
   }
 
@@ -794,6 +815,7 @@ var Sim = (function () {
     var offsiteQueue = [];
     for (var oi = 0; oi < sessions.length; oi++) {
       var os = sessions[oi];
+      if (!offsiteChargingEnabled(p)) break;
       if (!os.enabled || os.after !== 'offsite') continue;
       var dest = null;
       for (var oj = oi + 1; oj < sessions.length; oj++) {
@@ -1077,7 +1099,8 @@ var Sim = (function () {
     effectiveArrivalKwh: effectiveArrivalKwh, effectiveTowingKwh: effectiveTowingKwh,
     normalizeGapAction: normalizeGapAction,
     buildSchedule: buildSchedule, chargeDelivery: chargeDelivery, siteSources: siteSources,
-    siteCanCharge: siteCanCharge, effectiveGapMode: effectiveGapMode,
+    siteCanCharge: siteCanCharge, offsiteChargingEnabled: offsiteChargingEnabled,
+    effectiveGapMode: effectiveGapMode,
     simulate: simulate, GAP_ACTIONS: GAP_ACTIONS,
   };
 })();
@@ -1276,10 +1299,17 @@ var UI = (function () {
     var out = {};
     UI_FIELDS.forEach(function (f) { f.set(out, values[f.id]); });
     out.sessions = sessionsToEngine(values.sessions);
+    out.siteChargingEnabled = values.siteChargingEnabled !== false && values.siteChargingEnabled !== 'false';
+    out.offsiteChargingEnabled = values.offsiteChargingEnabled !== false && values.offsiteChargingEnabled !== 'false';
     // Grid EV connector is exclusive of portable gen/battery
     if (out.gridEnabled) {
       out.genEnabled = false;
       out.batteryEnabled = false;
+    }
+    if (!out.siteChargingEnabled) {
+      out.genEnabled = false;
+      out.batteryEnabled = false;
+      out.gridEnabled = false;
     }
     return out;
   }
@@ -1364,6 +1394,8 @@ var UI = (function () {
     var out = fieldDefaults(TRACK_FIELD_IDS);
     out.sessions = defaultSessionsForm();
     out.siteProfileId = BUILTIN_SITE_ID;
+    out.siteChargingEnabled = true;
+    out.offsiteChargingEnabled = true;
     return out;
   }
   function builtinCarProfiles() {
@@ -1397,6 +1429,8 @@ var UI = (function () {
     if (values.siteProfileId != null && values.siteProfileId !== '') {
       out.siteProfileId = String(values.siteProfileId);
     }
+    out.siteChargingEnabled = values.siteChargingEnabled !== false && values.siteChargingEnabled !== 'false';
+    out.offsiteChargingEnabled = values.offsiteChargingEnabled !== false && values.offsiteChargingEnabled !== 'false';
     return out;
   }
   function valuesEqual(a, b, ids) {
@@ -1426,7 +1460,10 @@ var UI = (function () {
   function trackValuesEqual(a, b) {
     var sa = a && a.siteProfileId != null ? String(a.siteProfileId) : '';
     var sb = b && b.siteProfileId != null ? String(b.siteProfileId) : '';
-    return valuesEqual(a, b, TRACK_FIELD_IDS) && sessionsEqual(a.sessions, b.sessions) && sa === sb;
+    var siteOn = (a && a.siteChargingEnabled !== false) === (b && b.siteChargingEnabled !== false);
+    var offOn = (a && a.offsiteChargingEnabled !== false) === (b && b.offsiteChargingEnabled !== false);
+    return valuesEqual(a, b, TRACK_FIELD_IDS) && sessionsEqual(a.sessions, b.sessions) &&
+      sa === sb && siteOn && offOn;
   }
   function newId(prefix) {
     return prefix + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -1696,7 +1733,13 @@ var UI = (function () {
   function applyTrackProfile(trackProf) {
     if (!trackProf) return;
     applyProfileValues('track', trackProf.values || {});
-    var siteId = trackProf.values && trackProf.values.siteProfileId;
+    var vals = trackProf.values || {};
+    var se = document.getElementById('siteChargingEnabled');
+    var oe = document.getElementById('offsiteChargingEnabled');
+    if (se) se.checked = vals.siteChargingEnabled !== false && vals.siteChargingEnabled !== 'false';
+    if (oe) oe.checked = vals.offsiteChargingEnabled !== false && vals.offsiteChargingEnabled !== 'false';
+    syncTrackPanelEnables();
+    var siteId = vals.siteProfileId;
     var siteList = listFor('site');
     var site = (siteId && UI.findProfile(siteList, siteId)) || siteList[0];
     if (!site) return;
@@ -1705,6 +1748,14 @@ var UI = (function () {
     var siteSel = document.getElementById('siteSelect');
     if (siteSel) siteSel.value = site.id;
     refreshProfileUI();
+  }
+  function syncTrackPanelEnables() {
+    var se = document.getElementById('siteChargingEnabled');
+    var oe = document.getElementById('offsiteChargingEnabled');
+    var sitePanel = document.querySelector('.track-panel.track-site');
+    var offPanel = document.querySelector('.track-panel.track-offsite');
+    if (sitePanel && se) sitePanel.classList.toggle('is-off', !se.checked);
+    if (offPanel && oe) offPanel.classList.toggle('is-off', !oe.checked);
   }
   /** Persist which site profile is linked to the active track. */
   function setActiveTrackSiteProfileId(siteId) {
@@ -1792,6 +1843,10 @@ var UI = (function () {
     if (kind === 'track') {
       var tv = UI.pickTrackValues(cur);
       tv.siteProfileId = activeIdFor('site');
+      var se = document.getElementById('siteChargingEnabled');
+      var oe = document.getElementById('offsiteChargingEnabled');
+      tv.siteChargingEnabled = !se || se.checked;
+      tv.offsiteChargingEnabled = !oe || oe.checked;
       return tv;
     }
     return UI.pickFields(cur, fieldIdsFor(kind));
@@ -2031,6 +2086,8 @@ var UI = (function () {
   // Sessions are primary rows. After each enabled non-last session: a gap mode dropdown
   // (Charge onsite | Charge offsite | No charging). Onsite only when site charging is on.
   function siteChargingAvailableFromDom() {
+    var panel = document.getElementById('siteChargingEnabled');
+    if (panel && !panel.checked) return false;
     var gen = document.getElementById('genEnabled');
     var bat = document.getElementById('batteryEnabled');
     var grid = document.getElementById('gridEnabled');
@@ -2039,31 +2096,41 @@ var UI = (function () {
     if (bat && bat.checked) return true;
     return false;
   }
-  function gapActionOptions(allowOnsite) {
+  function offsiteChargingAvailableFromDom() {
+    var panel = document.getElementById('offsiteChargingEnabled');
+    return !panel || panel.checked;
+  }
+  function gapActionOptions(allowOnsite, allowOffsite) {
+    if (allowOffsite == null) allowOffsite = offsiteChargingAvailableFromDom();
     return UI.GAP_ACTION_OPTIONS.filter(function (o) {
-      return allowOnsite || o.value !== 'onsite';
+      if (o.value === 'onsite' && !allowOnsite) return false;
+      if (o.value === 'offsite' && !allowOffsite) return false;
+      return true;
     });
   }
-  function normalizeGapModeForUi(mode, allowOnsite) {
+  function normalizeGapModeForUi(mode, allowOnsite, allowOffsite) {
+    if (allowOffsite == null) allowOffsite = offsiteChargingAvailableFromDom();
     var a = String(mode == null ? '' : mode);
     if (a === 'run' || a === '') a = 'onsite';
     else if (a === 'nothing') a = 'none';
     else if (a !== 'offsite' && a !== 'none' && a !== 'onsite') a = 'onsite';
-    if (a === 'onsite' && !allowOnsite) return 'none';
+    if (a === 'onsite' && !allowOnsite) a = 'none';
+    if (a === 'offsite' && !allowOffsite) a = 'none';
     return a;
   }
-  function gapSelectHtml(selected, allowOnsite) {
+  function gapSelectHtml(selected, allowOnsite, allowOffsite) {
     allowOnsite = !!allowOnsite;
-    selected = normalizeGapModeForUi(selected, allowOnsite);
-    var opts = gapActionOptions(allowOnsite);
+    if (allowOffsite == null) allowOffsite = offsiteChargingAvailableFromDom();
+    selected = normalizeGapModeForUi(selected, allowOnsite, allowOffsite);
+    var opts = gapActionOptions(allowOnsite, allowOffsite);
     return '<select class="sess-after" aria-label="After session">' +
       opts.map(function (o) {
         return '<option value="' + o.value + '"' + (o.value === selected ? ' selected' : '') + '>' +
           o.label + '</option>';
       }).join('') + '</select>';
   }
-  function gapModeLabel(mode, allowOnsite) {
-    mode = normalizeGapModeForUi(mode, allowOnsite);
+  function gapModeLabel(mode, allowOnsite, allowOffsite) {
+    mode = normalizeGapModeForUi(mode, allowOnsite, allowOffsite);
     if (mode === 'offsite') return 'Charge offsite';
     if (mode === 'none') return 'No charging';
     return 'Charge onsite';
@@ -2113,27 +2180,30 @@ var UI = (function () {
   /** Dropdown alone when editable; plain label for continuation rows. */
   function chargeActHtml(mode, editable, allowOnsite, sessionRow) {
     if (allowOnsite == null) allowOnsite = siteChargingAvailableFromDom();
-    mode = normalizeGapModeForUi(mode, allowOnsite);
-    if (!editable) return gapModeLabel(mode, allowOnsite);
-    var html = gapSelectHtml(mode, allowOnsite);
-    // Offsite stop controls sit next to the mode dropdown (shown when offsite)
+    var allowOffsite = offsiteChargingAvailableFromDom();
+    mode = normalizeGapModeForUi(mode, allowOnsite, allowOffsite);
+    if (!editable) return gapModeLabel(mode, allowOnsite, allowOffsite);
+    var html = gapSelectHtml(mode, allowOnsite, allowOffsite);
+    // Offsite stop controls sit under the mode dropdown (shown when offsite)
     html += offsiteOptsHtml(
       sessionRow || { offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30 },
       mode === 'offsite'
     );
     return html;
   }
-  /** Keep after-session dropdown options in sync with site charging availability. */
+  /** Keep after-session dropdown options in sync with site/offsite availability. */
   function syncSessionGapOptions() {
-    var allow = siteChargingAvailableFromDom();
+    var allowOnsite = siteChargingAvailableFromDom();
+    var allowOffsite = offsiteChargingAvailableFromDom();
     document.querySelectorAll('select.sess-after').forEach(function (sel) {
-      var cur = normalizeGapModeForUi(sel.value, allow);
-      var opts = gapActionOptions(allow);
+      var cur = normalizeGapModeForUi(sel.value, allowOnsite, allowOffsite);
+      var opts = gapActionOptions(allowOnsite, allowOffsite);
       sel.innerHTML = opts.map(function (o) {
         return '<option value="' + o.value + '"' + (o.value === cur ? ' selected' : '') + '>' +
           o.label + '</option>';
       }).join('');
       sel.value = cur;
+      syncOffsiteOptsVisibility(sel.closest('tbody.sess-block'));
     });
   }
   function updateSessionsTitle(count) {
@@ -2724,18 +2794,25 @@ var UI = (function () {
           siteBody += subSectionHtml(name, siteSubs[name]);
         });
         html += '<div class="track-panel track-site" data-section-embed="site">' +
-          sectionHeadHtml('site', 'Site Charging') +
-          siteBody +
+          '<label class="panel-enable" for="siteChargingEnabled">' +
+            '<input type="checkbox" id="siteChargingEnabled" checked> Site Charging' +
+          '</label>' +
+          '<div class="track-panel-body">' +
+            sectionHeadHtml('site', 'Profile') +
+            siteBody +
+          '</div>' +
         '</div>';
         if (subs.Offsite) {
-          // Flatten Offsite fields (no enable checkboxes) inside a titled panel
+          // Flatten Offsite fields inside an enableable titled panel
           var offBody = [];
           subs.Offsite.forEach(function (f) {
             if (!f.subEnable) offBody.push(f);
           });
           html += '<div class="track-panel track-offsite" data-section-embed="offsite">' +
-            '<div class="panel-title">Offsite Charging</div>' +
-            fieldsHtml(offBody) +
+            '<label class="panel-enable" for="offsiteChargingEnabled">' +
+              '<input type="checkbox" id="offsiteChargingEnabled" checked> Offsite Charging' +
+            '</label>' +
+            '<div class="track-panel-body">' + fieldsHtml(offBody) + '</div>' +
           '</div>';
         }
         html += '<div class="subgrp">' +
@@ -2819,7 +2896,44 @@ var UI = (function () {
     }
     setSessionsForm(initialSessions || UI.defaultSessionsForm());
     normalizeSiteSourceCheckboxes();
+    // Restore track panel enables from active track profile
+    var trEn = UI.findProfile(listFor('track'), activeIdFor('track'));
+    if (trEn && trEn.values) {
+      var se0 = document.getElementById('siteChargingEnabled');
+      var oe0 = document.getElementById('offsiteChargingEnabled');
+      if (se0) se0.checked = trEn.values.siteChargingEnabled !== false && trEn.values.siteChargingEnabled !== 'false';
+      if (oe0) oe0.checked = trEn.values.offsiteChargingEnabled !== false && trEn.values.offsiteChargingEnabled !== 'false';
+    }
+    syncTrackPanelEnables();
     refreshProfileUI();
+
+    function wirePanelEnable(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', function () {
+        syncTrackPanelEnables();
+        // Persist enable flags onto the active track profile association fields
+        var trackList = listFor('track');
+        var track = UI.findProfile(trackList, activeIdFor('track'));
+        if (track) {
+          var values = Object.assign({}, track.values || {}, {
+            siteChargingEnabled: !document.getElementById('siteChargingEnabled') ||
+              document.getElementById('siteChargingEnabled').checked,
+            offsiteChargingEnabled: !document.getElementById('offsiteChargingEnabled') ||
+              document.getElementById('offsiteChargingEnabled').checked,
+          });
+          setList('track', UI.upsertProfile(trackList, {
+            id: track.id, name: track.name, builtin: !!track.builtin, values: values,
+          }));
+          saveProfiles(profileState);
+        }
+        // Rebuild session gap selects (onsite/offsite options appear/disappear)
+        setSessionsForm(readSessionsFormRaw());
+        render();
+      });
+    }
+    wirePanelEnable('siteChargingEnabled');
+    wirePanelEnable('offsiteChargingEnabled');
 
     UI.UI_FIELDS.forEach(function (f) {
       var el = document.getElementById(f.id);
@@ -2859,6 +2973,10 @@ var UI = (function () {
       }
     });
     v.sessions = readSessionsForm();
+    var se = document.getElementById('siteChargingEnabled');
+    var oe = document.getElementById('offsiteChargingEnabled');
+    if (se) v.siteChargingEnabled = se.checked;
+    if (oe) v.offsiteChargingEnabled = oe.checked;
     return v;
   }
 
@@ -3452,6 +3570,7 @@ var UI = (function () {
     syncVehicleSelectWidth();
     drawChargeCurveChart();
     syncSiteSourceUI();
+    syncTrackPanelEnables();
     syncSessionGapOptions();
     var values = currentValues();
     saveValues(values); // persist so a refresh restores the inputs
