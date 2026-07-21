@@ -20,11 +20,11 @@ function loadUI() {
   return ctx.UI;
 }
 
-test('layout shell has profiles bar, input bar, result panel, and sessions table', () => {
-  assert.ok(/id="profiles"/.test(html));
+test('layout shell has input bar, result panel, and sessions table', () => {
   assert.ok(/id="inputs"/.test(html));
   assert.ok(/id="result"/.test(html));
   assert.ok(/id="sessions"/.test(html));
+  assert.ok(!/id="profiles"/.test(html)); // profiles live inside each section
   assert.ok(!/id="cards"/.test(html));
   assert.ok(!/id="overlay"/.test(html));
 });
@@ -112,27 +112,40 @@ test('chartScale maps domain to canvas box', () => {
   assert.equal(s.Y(0), 100);
 });
 
-test('car and track field ids are disjoint subsets of UI_FIELDS', () => {
+test('car, track, and site field ids are disjoint subsets of UI_FIELDS', () => {
   const UI = loadUI();
   const all = new Set(UI.UI_FIELDS.map(f => f.id));
-  UI.CAR_FIELD_IDS.forEach(id => assert.ok(all.has(id), 'car field ' + id));
-  UI.TRACK_FIELD_IDS.forEach(id => assert.ok(all.has(id), 'track field ' + id));
-  const overlap = UI.CAR_FIELD_IDS.filter(id => UI.TRACK_FIELD_IDS.includes(id));
-  assert.deepEqual(overlap, []);
+  const sets = [UI.CAR_FIELD_IDS, UI.TRACK_FIELD_IDS, UI.SITE_FIELD_IDS];
+  sets.forEach(ids => ids.forEach(id => assert.ok(all.has(id), 'profile field ' + id)));
+  const seen = new Set();
+  sets.flat().forEach(id => {
+    assert.ok(!seen.has(id), 'overlap on ' + id);
+    seen.add(id);
+  });
+  // Site Charging group holds trailer + DC charge fields
+  assert.ok(UI.UI_FIELDS.some(f => f.g === 'Site Charging' && f.id === 'trailerCapKwh'));
+  assert.ok(UI.UI_FIELDS.some(f => f.g === 'Site Charging' && f.id === 'dcPowerKw'));
+  assert.ok(!UI.UI_FIELDS.some(f => f.g === 'Trailer & generator'));
 });
 
-test('builtinProfiles seeds Plaid + Ridge with field defaults', () => {
+test('builtinProfiles seeds car, track, and site defaults', () => {
   const UI = loadUI();
   const bp = UI.builtinProfiles();
   assert.equal(bp.cars.length, 1);
   assert.equal(bp.tracks.length, 1);
+  assert.equal(bp.sites.length, 1);
   assert.equal(bp.cars[0].id, UI.BUILTIN_CAR_ID);
   assert.equal(bp.tracks[0].id, UI.BUILTIN_TRACK_ID);
+  assert.equal(bp.sites[0].id, UI.BUILTIN_SITE_ID);
   assert.equal(bp.cars[0].name, 'Tesla Model S Plaid');
   assert.equal(bp.tracks[0].name, 'Ridge Motorsports Park');
+  assert.equal(bp.sites[0].name, 'Portable trailer + generator');
   assert.equal(bp.cars[0].values.capacityKwh, '100');
   assert.equal(bp.tracks[0].values.driveTimeMin, '30');
   assert.equal(bp.tracks[0].values.scPowerCapKw, '250');
+  assert.equal(bp.sites[0].values.trailerCapKwh, '50');
+  assert.equal(bp.sites[0].values.dcPowerKw, '40');
+  assert.equal(bp.activeSiteId, UI.BUILTIN_SITE_ID);
 });
 
 test('normalizeProfiles restores missing builtins and repairs bad active ids', () => {
@@ -140,8 +153,10 @@ test('normalizeProfiles restores missing builtins and repairs bad active ids', (
   const n = UI.normalizeProfiles({
     cars: [{ id: 'car-custom', name: 'My EV', values: { capacityKwh: '75' } }],
     tracks: [],
+    sites: [{ id: 'site-big', name: 'Big trailer', values: { trailerCapKwh: '80' } }],
     activeCarId: 'missing',
     activeTrackId: 'also-missing',
+    activeSiteId: 'missing-site',
   });
   assert.ok(n.cars.some(p => p.id === UI.BUILTIN_CAR_ID));
   assert.ok(n.cars.some(p => p.id === 'car-custom'));
@@ -149,8 +164,13 @@ test('normalizeProfiles restores missing builtins and repairs bad active ids', (
   // custom still gets remaining car defaults filled in
   assert.equal(n.cars.find(p => p.id === 'car-custom').values.sessionEnergyKwh, '35');
   assert.ok(n.tracks.some(p => p.id === UI.BUILTIN_TRACK_ID));
+  assert.ok(n.sites.some(p => p.id === UI.BUILTIN_SITE_ID));
+  assert.ok(n.sites.some(p => p.id === 'site-big'));
+  assert.equal(n.sites.find(p => p.id === 'site-big').values.trailerCapKwh, '80');
+  assert.equal(n.sites.find(p => p.id === 'site-big').values.dcPowerKw, '40'); // filled default
   assert.equal(n.activeCarId, n.cars[0].id); // repaired to first available
   assert.equal(n.activeTrackId, n.tracks[0].id);
+  assert.equal(n.activeSiteId, n.sites[0].id);
 });
 
 test('pickFields / valuesEqual / upsert / remove profile helpers', () => {
