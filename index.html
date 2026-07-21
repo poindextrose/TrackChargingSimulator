@@ -1260,27 +1260,50 @@ var Sim = (function () {
       if (s.before === 'offsite') endMin = Math.max(endMin, s.gapStart + offsiteBudget, s.endMin);
     });
 
-    // Cooling: pre-session on arrival→first enabled; post-run on onsite gaps between enabled runs.
-    // Gaps span across intentionally skipped (disabled) session rows. No cooling for "none"/offsite.
+    // Cooling lumps (kWh) spread evenly as continuous pack draw over each window:
+    //  - Pre-session: arrival → first enabled session (heat from drive/tow). Always at track.
+    //  - Post-session: only minutes whose planned gap mode is onsite (not none/offsite).
+    // While CHARGE: covered by bus (net pack = deliver − P_cool). While IDLE/no power: drains pack.
     var cooling = new Array(endMin + 1);
     for (var z = 0; z <= endMin; z++) cooling[z] = 0;
     var enabledSess = sessions.filter(function (s) { return s.enabled; });
-    function paintCooling(fromMin, toMin, kwh) {
-      var hours = (toMin - fromMin) / 60;
-      if (!(hours > 0) || !(kwh > 0)) return;
-      var kw = kwh / hours;
-      for (var m = fromMin; m < toMin; m++) cooling[m] = kw;
+    /** Planned charge mode at minute t (not coerced by site power). */
+    function plannedGapModeAt(t) {
+      for (var di = 0; di < sessions.length; di++) {
+        var ds = sessions[di];
+        if (ds.enabled) continue;
+        if (t >= ds.startMin && t < ds.endMin) {
+          return normalizeGapAction(ds.after != null ? ds.after : ds.before);
+        }
+      }
+      for (var gi = 0; gi < sessions.length; gi++) {
+        var gs = sessions[gi];
+        if (t >= gs.gapStart && t < gs.gapEnd) return normalizeGapAction(gs.before);
+      }
+      if (t >= lastSessionEnd) return 'onsite';
+      return 'none';
     }
-    if (enabledSess.length && p.preSessionCoolingKwh > 0 &&
-        effectiveGapMode(enabledSess[0].before, p) === 'onsite') {
-      paintCooling(startMin, enabledSess[0].startMin, p.preSessionCoolingKwh);
+    function paintCooling(fromMin, toMin, kwh, onlyOnsiteMinutes) {
+      if (!(kwh > 0) || !(toMin > fromMin)) return;
+      var mins = [];
+      for (var m = fromMin; m < toMin; m++) {
+        if (onlyOnsiteMinutes && plannedGapModeAt(m) !== 'onsite') continue;
+        mins.push(m);
+      }
+      if (!mins.length) return;
+      var kw = kwh / (mins.length / 60);
+      for (var i = 0; i < mins.length; i++) cooling[mins[i]] = kw;
+    }
+    // Pre-session cooling is independent of site power / gap mode — always if configured.
+    if (enabledSess.length && p.preSessionCoolingKwh > 0) {
+      paintCooling(startMin, enabledSess[0].startMin, p.preSessionCoolingKwh, false);
     }
     for (var ei = 0; ei < enabledSess.length - 1; ei++) {
-      var gapMode = effectiveGapMode(enabledSess[ei].after != null
-        ? enabledSess[ei].after : enabledSess[ei + 1].before, p);
-      if (gapMode !== 'onsite') continue;
       if (p.coolingPerGapKwh > 0) {
-        paintCooling(enabledSess[ei].endMin, enabledSess[ei + 1].startMin, p.coolingPerGapKwh);
+        // Spread post-session cooling only across onsite minutes in this span
+        // (skips explicit "none" / offsite segments inside the window).
+        paintCooling(enabledSess[ei].endMin, enabledSess[ei + 1].startMin,
+          p.coolingPerGapKwh, true);
       }
     }
 
@@ -1456,13 +1479,15 @@ var Sim = (function () {
             genOn = refillTrailer(genBusFull) > 1e-9;
           }
         } else if (mode === 'CHARGE') {
+          // Cooling is a continuous pack/bus load while charging: net = deliver − P_cool
           coolKw = cooling[t] || 0;
           genOn = chargeCarOnsite(coolKw);
         } else {
-          // IDLE: "No charging" — car sits flat (no cooling drain), gen may top trailer
+          // IDLE (no charge / site off): still apply painted cooling as a pack drain
+          // (e.g. pre-session cooling before first run, or onsite gap with no site power).
+          // Explicit "none" gaps do not paint cooling, so coolKw is 0 there.
           coolKw = cooling[t] || 0;
-          var effPad = DaySM.effectivePaddockMode(pad);
-          if (effPad !== 'none' && coolKw > 0) eCar -= coolKw * dt;
+          if (coolKw > 0) eCar -= coolKw * dt;
           if (src.gen && src.battery && eTr < tcap) {
             genOn = refillTrailer(genBusFull) > 1e-9;
           }

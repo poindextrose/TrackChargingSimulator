@@ -364,6 +364,64 @@ test('pre-session cooling on first onsite gap', () => {
   assert.ok(near(coolKwh, p.preSessionCoolingKwh, 0.2));
 });
 
+test('pre-session cooling drains pack when site cannot charge (IDLE)', () => {
+  var p = cfg({
+    preSessionCoolingKwh: 5,
+    gridEnabled: false,
+    siteChargingEnabled: false,
+    genEnabled: false,
+    batteryEnabled: false,
+    offsiteChargingEnabled: false,
+    sessions: [
+      { startMin: 9 * 60, after: 'onsite' },
+      { startMin: 10 * 60 },
+    ],
+  });
+  assert.equal(Sim.siteCanCharge(p), false);
+  var r = Sim.simulate(p);
+  var pre = r.timeline.filter(pt => pt.min >= 8 * 60 && pt.min < 9 * 60);
+  assert.ok(pre.every(pt => pt.mode === 'IDLE'));
+  var coolKwh = pre.reduce((s, pt) => s + (pt.coolingKw || 0), 0) / 60;
+  assert.ok(near(coolKwh, 5, 0.2), 'cool painted=' + coolKwh);
+  var a = pre[0].carPct;
+  var b = pre[pre.length - 1].carPct;
+  var dKwh = (a - b) / 100 * p.capacityKwh;
+  assert.ok(near(dKwh, 5, 0.3), 'pack should drop ~5 kWh, got ' + dKwh);
+});
+
+test('pre-session cooling reduces net gain when charge power is limited', () => {
+  var base = {
+    preSessionCoolingKwh: 5,
+    gridEnabled: true,
+    gridPowerKw: 11.5,
+    siteChargingEnabled: false,
+    genEnabled: false,
+    batteryEnabled: false,
+    offsiteChargingEnabled: false,
+    sessions: [
+      { startMin: 9 * 60, after: 'onsite' },
+      { startMin: 10 * 60 },
+    ],
+  };
+  var withCool = Sim.simulate(cfg(base));
+  var noCool = Sim.simulate(cfg(Object.assign({}, base, { preSessionCoolingKwh: 0 })));
+  function gain(r) {
+    var pre = r.timeline.filter(pt => pt.min >= 8 * 60 && pt.min < 9 * 60);
+    return (pre[pre.length - 1].carPct - pre[0].carPct) / 100 * base.capacityKwh;
+  }
+  // defaultParams capacity — use same from first result
+  var cap = Sim.defaultParams().capacityKwh;
+  var g0 = (function () {
+    var pre = noCool.timeline.filter(pt => pt.min >= 8 * 60 && pt.min < 9 * 60);
+    return (pre[pre.length - 1].carPct - pre[0].carPct) / 100 * cap;
+  })();
+  var g1 = (function () {
+    var pre = withCool.timeline.filter(pt => pt.min >= 8 * 60 && pt.min < 9 * 60);
+    return (pre[pre.length - 1].carPct - pre[0].carPct) / 100 * cap;
+  })();
+  assert.ok(g0 - g1 > 4, 'cooling should cut ~5 kWh of net gain: ' + g0 + ' vs ' + g1);
+});
+
 test('feasibility low is during a session', () => {
   var r = Sim.simulate(Sim.defaultParams());
   var pt = r.timeline.find(x => x.min === r.metrics.minSocAtMin);
