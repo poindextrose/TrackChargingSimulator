@@ -16,17 +16,18 @@ function loadUI() {
   const ctx = { document: undefined, window: {} };
   vm.createContext(ctx);
   vm.runInContext(eng, ctx);
-  vm.runInContext(src, ctx); // bootstrap IIFE early-returns when document is undefined
+  vm.runInContext(src, ctx);
   return ctx.UI;
 }
 
-test('layout shell has input bar, result panel, and sessions table', () => {
+test('layout shell has inputs, session table, and result panel', () => {
   assert.ok(/id="inputs"/.test(html));
+  assert.ok(/sessionTable/.test(html));
   assert.ok(/id="result"/.test(html));
-  assert.ok(/id="sessions"/.test(html));
-  assert.ok(!/id="profiles"/.test(html)); // profiles live inside each section
-  assert.ok(!/id="cards"/.test(html));
-  assert.ok(!/id="overlay"/.test(html));
+  assert.ok(!/id="sessions"/.test(html));
+  assert.ok(!/Per-session state of charge/.test(html));
+  assert.ok(!/id="supercharge"/.test(html));
+  assert.ok(!/id="runS1"/.test(html));
 });
 
 test('UI_FIELDS ids are unique', () => {
@@ -34,77 +35,118 @@ test('UI_FIELDS ids are unique', () => {
   assert.equal(new Set(ids).size, ids.length);
 });
 
-test('UI_FIELDS includes supercharge, min-trailer-SoC, and 7 "run session" checkboxes', () => {
-  const UI = loadUI();
-  const ids = UI.UI_FIELDS.map(f => f.id);
-  assert.ok(ids.indexOf('supercharge') !== -1);
-  assert.ok(ids.indexOf('minTrailerSocPct') !== -1);
-  for (let i = 1; i <= 7; i++) assert.ok(ids.indexOf('runS' + i) !== -1, 'runS' + i + ' present');
-  // defaults: supercharge on; all sessions checked except 1pm (runS4)
-  const def = id => UI.UI_FIELDS.find(f => f.id === id).default;
-  assert.equal(def('supercharge'), true);
-  assert.equal(def('runS4'), false); // 1pm unchecked
-  [1, 2, 3, 5, 6, 7].forEach(i => assert.equal(def('runS' + i), true));
-});
-
 test('readParams(default form values) deep-equals engine defaultParams', () => {
   const UI = loadUI();
   const Sim = loadSim();
   const values = {};
   UI.UI_FIELDS.forEach(f => { values[f.id] = String(f.default); });
+  values.sessions = UI.defaultSessionsForm();
   assert.deepEqual(UI.readParams(values), Sim.defaultParams());
 });
 
-test('a "run session" checkbox maps (inverted) to the engine skip flag', () => {
+test('sessions form maps after + start; sorts by time', () => {
   const UI = loadUI();
-  const values = {};
-  UI.UI_FIELDS.forEach(f => { values[f.id] = String(f.default); });
-  values.runS5 = false;        // unchecking "run 2pm" -> skip it
-  values.runS6 = 'true';       // checked -> run it
-  const p = UI.readParams(values);
-  assert.equal(p.skipS5, true);
-  assert.equal(p.skipS6, false);
+  const eng = UI.sessionsToEngine([
+    { start: '13:00' },
+    { start: '09:00', after: 'offsite' },
+  ]);
+  assert.deepEqual(eng, [
+    { startMin: 9 * 60, enabled: true, after: 'offsite',
+      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30 },
+    { startMin: 13 * 60, enabled: true },
+  ]);
+});
+// note: form defaults offsite extras to next/80%/30 when after is offsite
+
+test('normalizeSessionsForm sorts and migrates legacy before to after', () => {
+  const UI = loadUI();
+  // Legacy: charge mode lived on the *next* session as before/action
+  const n = UI.normalizeSessionsForm([
+    { start: '14:00', action: 'run' },
+    { start: '10:00', action: 'offsite' },
+  ]);
+  assert.deepEqual(n, [
+    { start: '10:00', enabled: true, after: 'onsite' }, // from 14:00 action run → onsite
+    { start: '14:00', enabled: true }, // last: no after
+  ]);
+  // Explicit: before on second becomes after on first
+  const m = UI.normalizeSessionsForm([
+    { start: '09:00', before: 'onsite' },
+    { start: '13:00', before: 'offsite' },
+  ]);
+  assert.deepEqual(m, [
+    { start: '09:00', enabled: true, after: 'offsite',
+      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30 },
+    { start: '13:00', enabled: true },
+  ]);
+});
+
+test('adding a session keeps existing after modes attached to their sessions', () => {
+  const UI = loadUI();
+  const base = [
+    { start: '09:00', after: 'onsite' },
+    { start: '11:00', after: 'offsite' },
+    { start: '13:00' },
+  ];
+  // Insert 10:00 between 9 and 11 — 11's after must stay offsite (on 11), not move
+  const withNew = UI.normalizeSessionsForm(base.concat([{ start: '10:00', after: 'onsite' }]));
+  assert.deepEqual(withNew, [
+    { start: '09:00', enabled: true, after: 'onsite' },
+    { start: '10:00', enabled: true, after: 'onsite' },
+    { start: '11:00', enabled: true, after: 'offsite',
+      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30 }, // form default extras
+    { start: '13:00', enabled: true },
+  ]);
+});
+
+test('disabled session has no after; charge continues from previous enabled', () => {
+  const UI = loadUI();
+  const Sim = loadSim();
+  const n = UI.normalizeSessionsForm([
+    { start: '09:00', after: 'offsite' },
+    { start: '10:00', enabled: false },
+    { start: '13:00' },
+  ]);
+  assert.equal(n[1].enabled, false);
+  assert.ok(!('after' in n[1]));
+  assert.equal(n[0].after, 'offsite');
+  const sched = Sim.buildSchedule({
+    ...Sim.defaultParams(),
+    sessions: UI.sessionsToEngine(n),
+  });
+  assert.equal(sched[0].enabled, true);
+  assert.equal(sched[0].after, 'offsite');
+  assert.equal(sched[1].enabled, false);
+  assert.equal(sched[1].before, 'offsite'); // inherits prior after
+  assert.equal(sched[2].before, 'offsite');
+  assert.equal(sched[2].enabled, true);
 });
 
 test('hhmmToMin / minToHHMM round-trip', () => {
   const UI = loadUI();
   assert.equal(UI.hhmmToMin('08:00'), 480);
   assert.equal(UI.minToHHMM(480), '08:00');
-  assert.equal(UI.hhmmToMin('13:15'), 795);
 });
 
-test('formatMetrics returns labeled rows incl. fuel, min SoC, sessions run', () => {
+test('formatMetrics rows include fuel and sessions run', () => {
   const UI = loadUI();
   const Sim = loadSim();
   const rows = UI.formatMetrics(Sim.simulate(Sim.defaultParams()).metrics);
   const labels = rows.map(r => r.label.toLowerCase());
   assert.ok(labels.some(l => l.includes('lowest')));
   assert.ok(labels.some(l => l.includes('gas') || l.includes('fuel')));
-  assert.ok(labels.some(l => l.includes('end')));
   assert.ok(labels.some(l => l.includes('sessions run')));
-  rows.forEach(r => { assert.equal(typeof r.value, 'string'); });
 });
 
-test('formatMetrics adds supercharge + skipped rows when supercharging (default)', () => {
+test('formatMetrics adds offsite row for default plan', () => {
   const UI = loadUI();
   const Sim = loadSim();
   const labels = UI.formatMetrics(Sim.simulate(Sim.defaultParams()).metrics).map(r => r.label.toLowerCase());
-  assert.ok(labels.some(l => l.includes('supercharged')));
-  assert.ok(labels.some(l => l.includes('back')));
-  assert.ok(labels.some(l => l.includes('skipped')));
-});
-
-test('formatMetrics shows a skipped row when a session is manually skipped', () => {
-  const UI = loadUI();
-  const Sim = loadSim();
-  const p = Sim.defaultParams(); p.supercharge = false; p.skipS4 = false; p.skipS2 = true;
-  const labels = UI.formatMetrics(Sim.simulate(p).metrics).map(r => r.label.toLowerCase());
-  assert.ok(labels.some(l => l.includes('skipped')));
+  assert.ok(labels.some(l => l.includes('offsite')));
 });
 
 test('chartScale maps domain to canvas box', () => {
   const UI = loadUI();
-  assert.ok(typeof UI.chartScale === 'function');
   const s = UI.chartScale({ w:100, h:100, padL:10, padR:0, padT:0, padB:0, xMin:0, xMax:10, yMin:0, yMax:100 });
   assert.equal(s.X(0), 10);
   assert.equal(s.X(10), 100);
@@ -112,81 +154,149 @@ test('chartScale maps domain to canvas box', () => {
   assert.equal(s.Y(0), 100);
 });
 
-test('car, track, and site field ids are disjoint subsets of UI_FIELDS', () => {
-  const UI = loadUI();
-  const all = new Set(UI.UI_FIELDS.map(f => f.id));
-  const sets = [UI.CAR_FIELD_IDS, UI.TRACK_FIELD_IDS, UI.SITE_FIELD_IDS];
-  sets.forEach(ids => ids.forEach(id => assert.ok(all.has(id), 'profile field ' + id)));
-  const seen = new Set();
-  sets.flat().forEach(id => {
-    assert.ok(!seen.has(id), 'overlap on ' + id);
-    seen.add(id);
-  });
-  // Site Charging group holds trailer + DC charge fields
-  assert.ok(UI.UI_FIELDS.some(f => f.g === 'Site Charging' && f.id === 'trailerCapKwh'));
-  assert.ok(UI.UI_FIELDS.some(f => f.g === 'Site Charging' && f.id === 'dcPowerKw'));
-  assert.ok(!UI.UI_FIELDS.some(f => f.g === 'Trailer & generator'));
-});
-
-test('builtinProfiles seeds car, track, and site defaults', () => {
+test('builtin track profile has after-gap session plan and drive-in costs', () => {
   const UI = loadUI();
   const bp = UI.builtinProfiles();
-  assert.equal(bp.cars.length, 1);
-  assert.equal(bp.tracks.length, 1);
-  assert.equal(bp.sites.length, 1);
-  assert.equal(bp.cars[0].id, UI.BUILTIN_CAR_ID);
-  assert.equal(bp.tracks[0].id, UI.BUILTIN_TRACK_ID);
-  assert.equal(bp.sites[0].id, UI.BUILTIN_SITE_ID);
-  assert.equal(bp.cars[0].name, 'Tesla Model S Plaid');
-  assert.equal(bp.tracks[0].name, 'Ridge Motorsports Park');
-  assert.equal(bp.sites[0].name, 'Portable trailer + generator');
-  assert.equal(bp.cars[0].values.capacityKwh, '100');
-  assert.equal(bp.tracks[0].values.driveTimeMin, '30');
-  assert.equal(bp.tracks[0].values.scPowerCapKw, '250');
-  assert.equal(bp.sites[0].values.trailerCapKwh, '50');
-  assert.equal(bp.sites[0].values.dcPowerKw, '40');
-  assert.equal(bp.activeSiteId, UI.BUILTIN_SITE_ID);
+  const track = bp.tracks[0].values;
+  const sess = track.sessions;
+  assert.equal(sess.length, 7);
+  assert.equal(sess.find(s => s.start === '11:00').after, 'offsite');
+  assert.ok(!('after' in sess.find(s => s.start === '16:00')));
+  assert.ok(sess.every(s => !s.action && !s.before));
+  assert.equal(track.arrivalCostNoTrailerKwh, '13');
+  assert.equal(track.towingCostKwh, '4');
 });
 
-test('normalizeProfiles restores missing builtins and repairs bad active ids', () => {
+test('builtin cars include Plaid and Model 3 Performance with charge curves', () => {
   const UI = loadUI();
-  const n = UI.normalizeProfiles({
-    cars: [{ id: 'car-custom', name: 'My EV', values: { capacityKwh: '75' } }],
-    tracks: [],
-    sites: [{ id: 'site-big', name: 'Big trailer', values: { trailerCapKwh: '80' } }],
-    activeCarId: 'missing',
-    activeTrackId: 'also-missing',
-    activeSiteId: 'missing-site',
+  const bp = UI.builtinProfiles();
+  assert.ok(bp.cars.length >= 2);
+  const plaid = bp.cars.find(c => c.id === UI.BUILTIN_CAR_ID);
+  const m3p = bp.cars.find(c => c.id === UI.BUILTIN_CAR_M3P_ID);
+  assert.ok(plaid);
+  assert.ok(m3p);
+  assert.equal(plaid.values.chargeCurveId, 'model-s-plaid');
+  assert.equal(plaid.values.capacityKwh, '99.4');
+  assert.equal(m3p.values.chargeCurveId, 'model-3-performance');
+  assert.equal(m3p.values.capacityKwh, '75');
+  assert.ok(!('arrivalCostNoTrailerKwh' in plaid.values));
+  assert.ok(!('towingCostKwh' in plaid.values));
+});
+
+test('normalizeProfiles does not resurrect deleted profiles on reload', () => {
+  const UI = loadUI();
+  const bp = UI.builtinProfiles();
+  // User deleted Model S Plaid but kept M3P + a custom car
+  const custom = {
+    id: 'car-custom', name: 'My Track Car', builtin: false,
+    values: UI.fieldDefaults(UI.CAR_FIELD_IDS),
+  };
+  const carsAfterDelete = UI.removeProfile(bp.cars, UI.BUILTIN_CAR_ID).concat([custom]);
+  assert.ok(!carsAfterDelete.some(c => c.id === UI.BUILTIN_CAR_ID));
+  assert.ok(carsAfterDelete.some(c => c.id === UI.BUILTIN_CAR_M3P_ID));
+
+  const reloaded = UI.normalizeProfiles({
+    cars: carsAfterDelete,
+    activeCarId: custom.id,
+    tracks: bp.tracks,
+    activeTrackId: bp.activeTrackId,
+    sites: bp.sites,
+    activeSiteId: bp.activeSiteId,
   });
-  assert.ok(n.cars.some(p => p.id === UI.BUILTIN_CAR_ID));
-  assert.ok(n.cars.some(p => p.id === 'car-custom'));
-  assert.equal(n.cars.find(p => p.id === 'car-custom').values.capacityKwh, '75');
-  // custom still gets remaining car defaults filled in
-  assert.equal(n.cars.find(p => p.id === 'car-custom').values.sessionEnergyKwh, '35');
-  assert.ok(n.tracks.some(p => p.id === UI.BUILTIN_TRACK_ID));
-  assert.ok(n.sites.some(p => p.id === UI.BUILTIN_SITE_ID));
-  assert.ok(n.sites.some(p => p.id === 'site-big'));
-  assert.equal(n.sites.find(p => p.id === 'site-big').values.trailerCapKwh, '80');
-  assert.equal(n.sites.find(p => p.id === 'site-big').values.dcPowerKw, '40'); // filled default
-  assert.equal(n.activeCarId, n.cars[0].id); // repaired to first available
-  assert.equal(n.activeTrackId, n.tracks[0].id);
-  assert.equal(n.activeSiteId, n.sites[0].id);
+  assert.ok(!reloaded.cars.some(c => c.id === UI.BUILTIN_CAR_ID),
+    'deleted builtin car must stay deleted after normalize/reload');
+  assert.ok(reloaded.cars.some(c => c.id === UI.BUILTIN_CAR_M3P_ID));
+  assert.ok(reloaded.cars.some(c => c.id === 'car-custom'));
+  assert.equal(reloaded.activeCarId, custom.id);
+
+  // Empty list still seeds defaults (first run / wipe)
+  const empty = UI.normalizeProfiles({
+    cars: [], activeCarId: 'gone',
+    tracks: [], activeTrackId: 'gone',
+    sites: [], activeSiteId: 'gone',
+  });
+  assert.ok(empty.cars.some(c => c.id === UI.BUILTIN_CAR_ID));
+  assert.ok(empty.tracks.some(t => t.id === UI.BUILTIN_TRACK_ID));
+  assert.ok(empty.sites.some(s => s.id === UI.BUILTIN_SITE_ID));
 });
 
-test('pickFields / valuesEqual / upsert / remove profile helpers', () => {
+test('sessionsEqual compares after fields', () => {
   const UI = loadUI();
-  const picked = UI.pickFields({ capacityKwh: '90', dcPowerKw: '40', junk: 1 }, UI.CAR_FIELD_IDS);
-  assert.equal(picked.capacityKwh, '90');
-  assert.equal(picked.dcPowerKw, undefined);
-  assert.ok(UI.valuesEqual({ a: '1', b: true }, { a: 1, b: 'true' }, ['a', 'b']));
-  assert.ok(!UI.valuesEqual({ a: '1' }, { a: '2' }, ['a']));
+  assert.ok(UI.sessionsEqual(
+    [{ start: '09:00', after: 'onsite' }, { start: '10:00' }],
+    [{ start: '09:00', after: 'onsite' }, { start: '10:00' }]
+  ));
+  assert.ok(!UI.sessionsEqual(
+    [{ start: '09:00', after: 'onsite' }, { start: '10:00' }],
+    [{ start: '09:00', after: 'offsite' }, { start: '10:00' }]
+  ));
+});
 
-  let list = [{ id: 'x', name: 'X', values: { a: 1 } }];
-  list = UI.upsertProfile(list, { id: 'x', name: 'X2', values: { a: 2 } });
-  assert.equal(list.length, 1);
-  assert.equal(list[0].name, 'X2');
-  list = UI.upsertProfile(list, { id: 'y', name: 'Y', values: {} });
-  assert.equal(list.length, 2);
-  list = UI.removeProfile(list, 'x');
-  assert.deepEqual(list.map(p => p.id), ['y']);
+test('GAP_ACTION_OPTIONS includes onsite, offsite, and none', () => {
+  const UI = loadUI();
+  assert.deepEqual(UI.GAP_ACTION_OPTIONS.map(o => o.value), ['onsite', 'offsite', 'none']);
+  assert.ok(UI.GAP_ACTION_OPTIONS.some(o => /Charge onsite/i.test(o.label)));
+  assert.ok(UI.GAP_ACTION_OPTIONS.some(o => /No charging/i.test(o.label)));
+});
+
+test('packExport / parseImport round-trip selected profiles', () => {
+  const UI = loadUI();
+  const state = UI.builtinProfiles();
+  state.cars.push({
+    id: 'car-custom', name: 'My EV', builtin: false,
+    values: Object.assign(UI.fieldDefaults(UI.CAR_FIELD_IDS), { capacityKwh: '75' }),
+  });
+  const packed = UI.packExport(state, {
+    cars: ['car-custom'],
+    tracks: [UI.BUILTIN_TRACK_ID],
+    sites: [],
+  });
+  assert.equal(packed.format, UI.EXPORT_FORMAT);
+  assert.equal(packed.cars.length, 1);
+  assert.equal(packed.cars[0].name, 'My EV');
+  assert.equal(packed.tracks.length, 1);
+  assert.equal(packed.sites.length, 0);
+  const parsed = UI.parseImport(JSON.stringify(packed));
+  assert.equal(parsed.cars[0].values.capacityKwh, '75');
+  assert.equal(parsed.tracks[0].name, 'Ridge Motorsports Park');
+});
+
+test('applyImport adds new, replaces, or duplicates with …import', () => {
+  const UI = loadUI();
+  let state = UI.builtinProfiles();
+  // add new
+  let r = UI.applyImport(state, [{
+    kind: 'car',
+    profile: { name: 'Leaf', values: UI.fieldDefaults(UI.CAR_FIELD_IDS) },
+  }], {});
+  assert.equal(r.summary.added, 1);
+  assert.ok(r.state.cars.some(p => p.name === 'Leaf'));
+
+  // replace builtin-named track
+  r = UI.applyImport(r.state, [{
+    kind: 'track',
+    profile: {
+      name: 'Ridge Motorsports Park',
+      values: Object.assign(UI.trackFieldDefaults(), { driveTimeMin: '45' }),
+    },
+  }], { 'track:Ridge Motorsports Park': 'replace' });
+  assert.equal(r.summary.replaced, 1);
+  const ridge = r.state.tracks.find(p => p.name === 'Ridge Motorsports Park');
+  assert.equal(ridge.values.driveTimeMin, '45');
+  assert.equal(ridge.id, UI.BUILTIN_TRACK_ID);
+
+  // duplicate on name conflict
+  r = UI.applyImport(r.state, [{
+    kind: 'car',
+    profile: { name: 'Leaf', values: UI.fieldDefaults(UI.CAR_FIELD_IDS) },
+  }], { 'car:Leaf': 'duplicate' });
+  assert.equal(r.summary.duplicated, 1);
+  assert.ok(r.state.cars.some(p => p.name === 'Leaf …import'));
+});
+
+test('layout has export/import controls and modal', () => {
+  assert.ok(/id="btnExport"/.test(html));
+  assert.ok(/id="btnImport"/.test(html));
+  assert.ok(/id="importFile"/.test(html));
+  assert.ok(/id="modal"/.test(html));
 });

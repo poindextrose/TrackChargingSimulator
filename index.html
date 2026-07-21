@@ -11,17 +11,47 @@
   body { margin:0; font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;
          background:var(--bg); color:var(--txt); }
   header { padding:10px 16px; border-bottom:1px solid var(--line); }
-  header h1 { margin:0; font-size:16px; font-weight:650; }
-  header .sub { margin:2px 0 0; font-size:12px; color:var(--mut); }
-  #inputs { display:flex; flex-direction:column; gap:0; padding:0;
-            border-bottom:1px solid var(--line); background:var(--panel); }
-  .section-row { display:flex; flex-direction:column; gap:6px;
-                 padding:10px 16px; border-top:1px solid var(--line); }
-  #inputs > .section-row:first-child { border-top:none; }
-  /* CAR: [profile] Reload Save Save as… Delete */
-  .section-head { display:flex; flex-wrap:nowrap; gap:6px; align-items:center; min-width:0; }
-  .section-head .grp-title { flex:0 0 auto; font-size:11px; text-transform:uppercase;
-                             letter-spacing:.04em; color:var(--mut); white-space:nowrap; }
+  /* Title + export/import always share one line; description sits below */
+  .header-top { display:flex; flex-wrap:nowrap; align-items:center; justify-content:space-between;
+                gap:10px; }
+  header h1 { margin:0; font-size:16px; font-weight:650; flex:1 1 auto; min-width:0;
+              white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .header-actions { display:flex; flex-wrap:nowrap; gap:6px; align-items:center; flex:0 0 auto; }
+  .header-actions button, .modal-actions button { padding:5px 10px; border:1px solid var(--line);
+           background:#0c0e12; color:var(--txt); border-radius:6px; cursor:pointer; font-size:12.5px; }
+  .header-actions button:hover, .modal-actions button:hover { border-color:#4b5563; }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center;
+           justify-content:center; z-index:100; padding:16px; }
+  .modal.hidden { display:none; }
+  .modal-card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+                padding:14px 16px; width:min(440px, 100%); max-height:min(80vh, 640px);
+                display:flex; flex-direction:column; gap:10px; }
+  .modal-card h2 { margin:0; font-size:14px; }
+  .modal-card .modal-desc { margin:0; font-size:12px; color:var(--mut); }
+  .modal-body { overflow:auto; flex:1 1 auto; display:flex; flex-direction:column; gap:10px; }
+  .modal-group { border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .modal-group h3 { margin:0 0 6px; font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+                    color:var(--mut); }
+  .modal-check { display:flex; align-items:center; gap:8px; font-size:13px; padding:3px 0;
+                 cursor:pointer; }
+  .modal-check input { margin:0; }
+  .modal-toolbar { display:flex; gap:8px; flex-wrap:wrap; }
+  .modal-toolbar button { font-size:12px; padding:3px 8px; }
+  .modal-actions { display:flex; justify-content:flex-end; gap:8px; padding-top:4px; }
+  .modal-actions .primary { border-color:var(--accent); color:#c7c9ff; }
+  #inputs { display:flex; flex-direction:column; gap:12px; padding:12px 16px;
+            border-bottom:1px solid var(--line); background:var(--bg); }
+  .section-row { display:flex; flex-direction:column; gap:10px;
+                 padding:14px 16px; background:var(--panel);
+                 border:1px solid var(--line); border-radius:10px; }
+  .section-row[data-section="car"] { border-left:3px solid var(--car); }
+  .section-row[data-section="site"] { border-left:3px solid var(--trl); }
+  .section-row[data-section="track"] { border-left:3px solid var(--accent); }
+  /* CAR / SITE / TRACK: profile select + ⋯ menu */
+  .section-head { display:flex; flex-wrap:nowrap; gap:6px; align-items:center; min-width:0;
+                  padding-bottom:8px; border-bottom:1px solid var(--line); margin-bottom:2px; }
+  .section-head .grp-title { flex:0 0 auto; font-size:16px; text-transform:uppercase;
+                             letter-spacing:.04em; color:var(--txt); font-weight:700; white-space:nowrap; }
   .section-head select { flex:0 1 200px; width:200px; min-width:120px; max-width:280px;
                          padding:4px 6px; background:#0c0e12; color:var(--txt);
                          border:1px solid var(--line); border-radius:6px; font-size:12.5px; }
@@ -30,18 +60,256 @@
            border-radius:6px; cursor:pointer; font-size:12px; }
   .section-head button:hover, #reset:hover, .btn:hover { border-color:#4b5563; }
   .section-head button:disabled { opacity:.4; cursor:not-allowed; }
-  .section-head .dirty { flex:1 1 auto; min-width:0; color:var(--accent); font-size:11px;
-                         white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .grp-fields { display:flex; flex-wrap:wrap; gap:8px; }
+  .section-head .dirty-actions {
+    flex:0 0 auto; display:none; align-items:center; gap:6px;
+  }
+  .section-head .dirty-actions.is-dirty { display:inline-flex; }
+  .section-head .dirty-save,
+  .section-head .dirty-reset {
+    display:inline-flex; align-items:center; justify-content:center;
+    border-radius:7px; border:1px solid transparent; cursor:pointer;
+    color:#0b1020; background:linear-gradient(180deg, #a5b4fc 0%, #6366f1 100%);
+    box-shadow:0 0 0 2px rgba(99,102,241,.45), 0 4px 14px rgba(99,102,241,.55);
+    animation: savePulse 1.6s ease-in-out infinite;
+  }
+  .section-head .dirty-save {
+    padding:5px 14px; font-size:12.5px; font-weight:700; letter-spacing:.02em;
+  }
+  .section-head .dirty-reset {
+    width:2rem; height:2rem; padding:0;
+  }
+  .section-head .dirty-save:hover,
+  .section-head .dirty-reset:hover {
+    background:linear-gradient(180deg, #c7d2fe 0%, #818cf8 100%);
+    box-shadow:0 0 0 3px rgba(99,102,241,.55), 0 6px 18px rgba(99,102,241,.65);
+  }
+  .section-head .dirty-save:active,
+  .section-head .dirty-reset:active { transform:translateY(1px); }
+  .section-head .dirty-reset svg { display:block; width:15px; height:15px; }
+  @keyframes savePulse {
+    0%, 100% { box-shadow:0 0 0 2px rgba(99,102,241,.45), 0 4px 14px rgba(99,102,241,.5); }
+    50% { box-shadow:0 0 0 4px rgba(99,102,241,.65), 0 6px 20px rgba(99,102,241,.75); }
+  }
+  .menu-wrap { position:relative; flex:0 0 auto; }
+  .menu-wrap > .menu-btn { width:2rem; padding:4px 0; font-size:16px; line-height:1;
+                           letter-spacing:0.05em; text-align:center; }
+  .menu-dropdown {
+    position:absolute; top:calc(100% + 4px); left:0; z-index:40;
+    min-width:9.5rem; padding:4px 0; margin:0;
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    box-shadow:0 8px 24px rgba(0,0,0,.45);
+  }
+  .menu-dropdown[hidden] { display:none; }
+  .menu-dropdown button {
+    display:block; width:100%; box-sizing:border-box;
+    padding:7px 12px; border:0; border-radius:0; background:transparent;
+    color:var(--txt); font-size:12.5px; text-align:left; cursor:pointer; white-space:nowrap;
+  }
+  .menu-dropdown button:hover:not(:disabled) { background:#1c2230; }
+  .menu-dropdown button:disabled { opacity:.4; cursor:not-allowed; }
+  .menu-dropdown button.menu-danger { color:var(--bad); }
+  .menu-dropdown hr { border:0; border-top:1px solid var(--line); margin:4px 0; }
+  .grp-fields { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:flex-end; }
   .fld { display:flex; flex-direction:column; gap:2px; }
   .fld label { font-size:11px; color:var(--mut); }
-  .fld input { width:92px; padding:4px 6px; background:#0c0e12; color:var(--txt);
-               border:1px solid var(--line); border-radius:5px; font-size:13px; }
-  .day-row { display:flex; flex-wrap:wrap; gap:14px 30px; align-items:flex-start;
-             padding:10px 16px; border-top:1px solid var(--line); }
-  .day-row .grp { display:flex; flex-direction:column; gap:6px; }
-  .day-row .grp-title { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--mut); }
-  #reset { margin:0 16px 12px auto; display:block; }
+  .fld-control { display:flex; align-items:center; gap:4px; }
+  .fld .unit { font-size:11px; color:var(--mut); white-space:nowrap; }
+  .fld input, .fld select { padding:4px 6px; background:#0c0e12; color:var(--txt);
+               border:1px solid var(--line); border-radius:5px; font-size:13px;
+               box-sizing:border-box; }
+  .fld input[type="number"],
+  .fld input[type="time"] { text-align:right; }
+  .fld input[type="text"] { text-align:left; }
+  /* Compact number fields; hide spinners so width matches the digits */
+  .fld input[type="number"] { width:3.1rem; -moz-appearance:textfield; }
+  .fld input[type="number"]::-webkit-outer-spin-button,
+  .fld input[type="number"]::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  .fld input[type="number"].w-sm { width:2.6rem; }   /* %, min — 1–3 digits */
+  .fld input[type="number"].w-lg { width:3.6rem; }   /* decimals / 3+ digits (99.4, 250) */
+  .fld input[type="time"] { width:5.5rem; }
+  /* No native clock/calendar picker on time fields (type typed HH:MM) */
+  .fld input[type="time"]::-webkit-calendar-picker-indicator,
+  table.sess-table input[type="time"]::-webkit-calendar-picker-indicator {
+    display: none;
+    -webkit-appearance: none;
+  }
+  .fld input[type="text"] { width:7.5rem; }
+  .fld select { width:auto; min-width:4.5rem; }
+  .fld select#chargeCurveId { width:auto; min-width:0; max-width:100%; }
+  /* EV section: fields wrap on the left; curve stays a right column (~2/3 prior size) */
+  .car-body {
+    display:flex; flex-direction:row; flex-wrap:nowrap; align-items:flex-start; gap:14px 18px;
+    min-width:0;
+  }
+  .car-body .grp-fields {
+    flex:1 1 0; min-width:12rem; align-content:flex-start;
+  }
+  .curve-col {
+    flex:0 0 clamp(190px, 28vw, 347px); /* ~2/3 of prior 280–520 range */
+    display:flex; flex-direction:column; min-height:0; align-self:flex-start;
+  }
+  .curve-col canvas#chargeCurveChart {
+    width:100%; height:120px; min-height:0; max-height:120px; display:block;
+    /* 120 ≈ 2/3 of prior ~180 stretch; fixed so it doesn't fill full field column */
+    background:#0c0e12; border:1px solid var(--line); border-radius:6px;
+  }
+  .curve-caption {
+    flex:0 0 auto; margin-top:4px; font-size:10px; color:var(--mut); letter-spacing:.02em;
+    text-align:right;
+  }
+  .fld input:disabled, .fld select:disabled { opacity:.45; }
+  .subgrp { margin-top:4px; padding-top:6px; border-top:1px dashed var(--line); }
+  /* No separator when the sub-section is the first content under the profile header */
+  .section-head + .subgrp { margin-top:0; padding-top:0; border-top:none; }
+  .subgrp-head { display:flex; align-items:center; gap:8px; margin-bottom:4px; min-width:0; }
+  .subgrp-head .subgrp-title { margin-bottom:0; flex:0 1 auto; }
+  .subgrp-title { font-size:10px; text-transform:uppercase; letter-spacing:.04em;
+                  color:var(--mut); margin-bottom:4px; }
+  #sessionsTitle { font-size:13px; font-weight:650; color:var(--txt); letter-spacing:.03em; }
+  /* Generator / Battery / Grid: enable label + fields on one row */
+  .subgrp[data-sub] {
+    display:flex; flex-wrap:wrap; align-items:flex-end; gap:8px 14px;
+  }
+  .subgrp[data-sub] .subgrp-head {
+    margin-bottom:0; flex:0 0 auto; align-self:flex-end;
+    padding-bottom:5px; /* line up with input baselines under field labels */
+  }
+  .subgrp[data-sub] .grp-fields {
+    flex:1 1 auto; min-width:0; margin:0;
+  }
+  .subgrp-enable { display:flex; align-items:center; gap:6px; margin:0; cursor:pointer;
+                   font-size:10px; text-transform:uppercase; letter-spacing:.04em;
+                   color:var(--mut); font-weight:600; user-select:none; white-space:nowrap; }
+  .subgrp-enable input { margin:0; width:auto; accent-color:var(--accent); cursor:pointer; }
+  .subgrp.is-off .grp-fields { opacity:.4; }
+  .subgrp.is-off .grp-fields input:not([type="checkbox"]),
+  .subgrp.is-off .grp-fields select { pointer-events:none; }
+  .fld.is-disabled { opacity:.4; }
+  .fld.is-disabled input,
+  .fld.is-disabled select { pointer-events:none; }
+  .icon-btn { display:inline-flex; align-items:center; justify-content:center;
+              width:1.65rem; height:1.65rem; padding:0; border:1px solid var(--line);
+              background:#0c0e12; color:var(--txt); border-radius:6px; cursor:pointer;
+              line-height:1; flex:0 0 auto; }
+  .icon-btn:hover { border-color:#4b5563; color:#fff; }
+  .icon-btn svg { display:block; width:14px; height:14px; }
+  .icon-btn.sess-remove { color:var(--mut); }
+  .icon-btn.sess-remove:hover { color:var(--bad); border-color:rgba(239,68,68,.45); }
+  .sess-table-wrap { margin-top:6px; overflow-x:auto; max-width:100%; }
+  /* auto layout: Activity column tracks content (short charger names = less gap before For) */
+  table.sess-table { width:max-content; max-width:100%; border-collapse:collapse; font-size:12px;
+                     table-layout:auto; }
+  table.sess-table col.c-start { width:5.75rem; }
+  table.sess-table col.c-act { width:auto; }
+  table.sess-table col.c-for { width:4.25rem; }
+  table.sess-table col.c-soc { width:6.5rem; }
+  table.sess-table col.c-trl { width:6.5rem; }
+  /* Hide Trailer SoC when site battery is off (no trailer in the model) */
+  table.sess-table.no-trailer col.c-trl,
+  table.sess-table.no-trailer th:nth-child(5),
+  table.sess-table.no-trailer td:nth-child(5) { display:none; }
+  table.sess-table col.c-actn { width:2.25rem; }
+  table.sess-table th:nth-child(2),
+  table.sess-table td:nth-child(2) { padding-right:12px; max-width:16rem; }
+  table.sess-table th { text-align:left; color:var(--mut); font-weight:600; font-size:10px;
+                        text-transform:uppercase; letter-spacing:.04em; padding:4px 8px 6px 0;
+                        border-bottom:1px solid var(--line); white-space:nowrap; }
+  table.sess-table td { padding:4px 8px 4px 0; border-bottom:1px solid var(--line);
+                        vertical-align:middle; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  table.sess-table td:first-child { overflow:visible; }
+  /* Intermediate (drive / charge / wait): smaller, normal weight; center computed start times */
+  table.sess-table tr.sess-drive td:first-child,
+  table.sess-table tr.sess-charge-row td:first-child,
+  table.sess-table tr.sess-wait-row td:first-child { text-align:center; }
+  table.sess-table tr.sess-drive td { color:#eab308; font-size:11.5px; font-weight:400; }
+  table.sess-table tr.sess-charge-row td,
+  table.sess-table tr.sess-wait-row td { font-size:11.5px; font-weight:400; color:var(--mut); }
+  table.sess-table tr.sess-charge-row td.sess-act { color:var(--txt); }
+  table.sess-table tr.sess-sc td .ch-start,
+  table.sess-table tr.sess-sc td.sess-num { color:#22c55e; }
+  table.sess-table tr.sess-charge-row td.ch-start { font-variant-numeric:tabular-nums; }
+  /* Primary session rows: larger + bold */
+  table.sess-table tr.sess-edit-row td { border-bottom-color:#3a4150; font-size:13.5px;
+                                          font-weight:650; color:var(--txt); }
+  table.sess-table tr.sess-edit-row td.sess-mut { color:var(--mut); font-weight:600; }
+  table.sess-table tr.sess-missed td { color:var(--mut); }
+  table.sess-table tr.sess-disabled td { color:var(--mut); font-weight:600; }
+  table.sess-table tr[hidden] { display:none; }
+  table.sess-table .sess-act { color:var(--txt); }
+  table.sess-table .sess-enable-label {
+    display:inline-flex; align-items:center; gap:6px; cursor:pointer; user-select:none;
+  }
+  table.sess-table .sess-enable-label input { margin:0; width:auto; accent-color:var(--accent); cursor:pointer; }
+  table.sess-table .sess-mut { color:var(--mut); }
+  table.sess-table .sess-bad { color:var(--bad); }
+  /* Centered SoC ranges: "83% → 48%" — green charge, yellow discharge */
+  table.sess-table th:nth-child(4),
+  table.sess-table th:nth-child(5),
+  table.sess-table td:nth-child(4),
+  table.sess-table td:nth-child(5) { text-align: center; }
+  table.sess-table .soc-range {
+    display: inline;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--txt);
+  }
+  table.sess-table .soc-range .soc-arrow { padding: 0 0.15em; opacity: 0.85; }
+  table.sess-table .soc-range.soc-charge,
+  table.sess-table .soc-range.soc-charge .soc-a,
+  table.sess-table .soc-range.soc-charge .soc-arrow,
+  table.sess-table .soc-range.soc-charge .soc-b { color: #22c55e; }
+  table.sess-table .soc-range.soc-discharge,
+  table.sess-table .soc-range.soc-discharge .soc-a,
+  table.sess-table .soc-range.soc-discharge .soc-arrow,
+  table.sess-table .soc-range.soc-discharge .soc-b { color: #eab308; }
+  table.sess-table .soc-range.soc-flat,
+  table.sess-table .soc-range.soc-flat .soc-a,
+  table.sess-table .soc-range.soc-flat .soc-arrow,
+  table.sess-table .soc-range.soc-flat .soc-b { color: var(--mut); }
+  /* Low-reserve / floor still wins over charge/discharge colors */
+  table.sess-table .soc-range.sess-bad,
+  table.sess-table .soc-range.sess-bad .soc-a,
+  table.sess-table .soc-range.sess-bad .soc-arrow,
+  table.sess-table .soc-range.sess-bad .soc-b { color: var(--bad) !important; }
+  /* Flash a session block after auto-sort so the new position is obvious */
+  @keyframes sessFlash {
+    0% { background-color: rgba(99, 102, 241, 0.42); }
+    70% { background-color: rgba(99, 102, 241, 0.18); }
+    100% { background-color: transparent; }
+  }
+  table.sess-table tbody.sess-block.sess-flash td {
+    animation: sessFlash 2s ease-out;
+  }
+  /* Time field without native picker icon */
+  table.sess-table input[type="time"] {
+    width:5.5rem; min-width:5.5rem; max-width:5.5rem; box-sizing:border-box;
+    padding:2px 4px; margin:0; background:#0c0e12; color:var(--txt);
+    border:1px solid var(--line); border-radius:5px; font-size:12.5px; font-weight:650;
+    font-variant-numeric:tabular-nums;
+  }
+  table.sess-table select.sess-after,
+  table.sess-table select.sess-offsite-stop {
+    width:auto; min-width:7.5rem; max-width:12rem;
+    padding:2px 4px; background:#0c0e12;
+    color:var(--txt); border:1px solid var(--line); border-radius:5px; font-size:11.5px;
+  }
+  table.sess-table .sess-offsite-opts {
+    display:inline-flex; align-items:center; gap:5px; margin-left:6px; vertical-align:middle;
+  }
+  table.sess-table .sess-offsite-opts[hidden] { display:none; }
+  table.sess-table .sess-offsite-opts input[type="number"] {
+    width:3.25rem; padding:2px 4px; background:#0c0e12; color:var(--txt);
+    border:1px solid var(--line); border-radius:5px; font-size:11.5px;
+    text-align:right; -moz-appearance:textfield;
+  }
+  table.sess-table .sess-offsite-opts input[type="number"]::-webkit-outer-spin-button,
+  table.sess-table .sess-offsite-opts input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance:none; margin:0;
+  }
+  table.sess-table .sess-offsite-opts .unit {
+    font-size:11px; color:var(--mut); white-space:nowrap;
+  }
+  table.sess-table .icon-btn { vertical-align:middle; }
   #cards { display:flex; gap:12px; padding:14px 16px; flex-wrap:wrap; }
   .card { flex:1 1 280px; min-width:280px; background:var(--panel);
           border:1px solid var(--line); border-radius:10px; padding:12px; }
@@ -51,8 +319,10 @@
            font-weight:650; margin-bottom:8px; }
   .badge.ok { background:rgba(34,197,94,.15); color:var(--ok); }
   .badge.bad { background:rgba(239,68,68,.15); color:var(--bad); }
-  canvas { width:100%; height:auto; display:block; background:#0c0e12;
-           border:1px solid var(--line); border-radius:8px; }
+  #result canvas, .panel canvas#chart {
+    width:100%; height:auto; display:block; background:#0c0e12;
+    border:1px solid var(--line); border-radius:8px;
+  }
   .metrics { list-style:none; margin:8px 0 0; padding:0; }
   .metrics li { display:flex; justify-content:space-between; gap:8px; padding:2px 0;
                 border-bottom:1px dashed var(--line); font-size:12.5px; }
@@ -72,31 +342,92 @@
     .card{ flex-basis:100%; }
     .section-head { flex-wrap:wrap; }
     .section-head select { flex:1 1 160px; width:auto; max-width:none; }
-    .section-head .dirty { flex-basis:100%; }
+
   }
 </style>
 </head>
 <body>
 <header>
-  <h1>Track Charging Simulator</h1>
-  <p class="sub">Plan portable DC charging for any car, track, and site charging setup. Profiles are saved in this browser.</p>
+  <div class="header-top">
+    <h1>Track Charging Simulator</h1>
+    <div class="header-actions">
+      <button type="button" id="btnExport">Export…</button>
+      <button type="button" id="btnImport">Import…</button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+    </div>
+  </div>
 </header>
 <div id="inputs"></div>
 <div id="result"></div>
-<div id="sessions"></div>
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal-card">
+    <h2 id="modalTitle">Profiles</h2>
+    <p class="modal-desc" id="modalDesc"></p>
+    <div class="modal-toolbar" id="modalToolbar"></div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-actions">
+      <button type="button" id="modalCancel">Cancel</button>
+      <button type="button" id="modalOk" class="primary">OK</button>
+    </div>
+  </div>
+</div>
 <script>
 // SIM_ENGINE_START
 var Sim = (function () {
   'use strict';
 
-  var PLAID_V3_CURVE = [
+  // DC fast-charge acceptance curves: [SoC %, power kW], linear between anchors.
+  // Model S Plaid V3 Supercharger (InsideEVs / common logs: ~250 kW plateau ~10–33%).
+  var CURVE_MODEL_S_PLAID = [
     [5, 210], [10, 250], [20, 250], [30, 250], [33, 250],
     [40, 195], [50, 148], [60, 120], [70, 95], [80, 68],
     [90, 42], [95, 27], [100, 7],
   ];
+  // Model 3 Performance (V3 Supercharger, representative dual-motor / Performance curve:
+  // brief ~250 kW peak then steeper taper than Plaid).
+  var CURVE_MODEL_3_PERFORMANCE = [
+    [5, 180], [10, 250], [15, 250], [20, 235], [25, 200],
+    [30, 170], [40, 135], [50, 110], [60, 88], [70, 68],
+    [80, 48], [90, 30], [95, 18], [100, 8],
+  ];
+  var CHARGE_CURVES = {
+    'model-s-plaid': CURVE_MODEL_S_PLAID,
+    'model-3-performance': CURVE_MODEL_3_PERFORMANCE,
+  };
+  var DEFAULT_CHARGE_CURVE_ID = 'model-s-plaid';
+  // Usable pack ceilings (new vehicle). Capacity input is clamped ≤ these.
+  // Model S Plaid: EPA ~99.4 kWh usable. Model 3 Performance: ~82 kWh pack (pre-Highland /
+  // Performance dual-motor family); Highland is smaller — 82 is the allowed max.
+  var VEHICLE_CAPACITY_MAX_KWH = {
+    'model-s-plaid': 99.4,
+    'model-3-performance': 82,
+  };
+  var VEHICLE_CAPACITY_DEFAULT_KWH = {
+    'model-s-plaid': 99.4,
+    'model-3-performance': 75,
+  };
 
-  function curvePower(socPct) {
-    var c = PLAID_V3_CURVE;
+  function getChargeCurve(curveId) {
+    return CHARGE_CURVES[curveId] || CHARGE_CURVES[DEFAULT_CHARGE_CURVE_ID];
+  }
+  function normalizeChargeCurveId(id) {
+    return CHARGE_CURVES[id] ? id : DEFAULT_CHARGE_CURVE_ID;
+  }
+  function maxCapacityKwh(curveId) {
+    var id = normalizeChargeCurveId(curveId);
+    return VEHICLE_CAPACITY_MAX_KWH[id] != null ? VEHICLE_CAPACITY_MAX_KWH[id] : 100;
+  }
+  function clampCapacityKwh(capacity, curveId) {
+    var cap = parseFloat(capacity);
+    if (!isFinite(cap) || cap < 1) cap = 1;
+    var max = maxCapacityKwh(curveId);
+    if (cap > max) cap = max;
+    return cap;
+  }
+  /** @param {number} socPct
+   *  @param {string|Array} [curveOrId] curve id or raw [[soc,kW],...] table */
+  function curvePower(socPct, curveOrId) {
+    var c = Array.isArray(curveOrId) ? curveOrId : getChargeCurve(curveOrId);
     if (socPct <= c[0][0]) return c[0][1];
     if (socPct >= c[c.length - 1][0]) return c[c.length - 1][1];
     for (var i = 1; i < c.length; i++) {
@@ -108,78 +439,248 @@ var Sim = (function () {
     return c[c.length - 1][1];
   }
 
+  // Every session is a run. `after` is how to charge in the gap following a session
+  // (until the next): onsite | offsite | none. Last session has no `after`.
+  // First gap (arrival→first) defaults to onsite when site charging is available.
+  var GAP_ACTIONS = ['onsite', 'offsite', 'none'];
+  function defaultSessionPlan() {
+    return [
+      { startMin: 9 * 60, enabled: true, after: 'onsite' },
+      { startMin: 10 * 60, enabled: true, after: 'onsite' },
+      // Default offsite: charge nearly full (may miss next session); UI also offers next/for
+      { startMin: 11 * 60, enabled: true, after: 'offsite', offsiteStop: 'until',
+        offsiteUntilSocPct: 100, offsiteForMin: 30 },
+      { startMin: 13 * 60, enabled: true, after: 'onsite' },
+      { startMin: 14 * 60, enabled: true, after: 'onsite' },
+      { startMin: 15 * 60, enabled: true, after: 'onsite' },
+      { startMin: 16 * 60, enabled: true }, // last: no after
+    ];
+  }
+  function normalizeOffsiteStop(v) {
+    v = String(v == null ? '' : v);
+    if (v === 'until' || v === 'till') return 'until';
+    if (v === 'for') return 'for';
+    return 'next'; // until next session
+  }
+  /** Normalize a raw session list to after-based plan. Accepts legacy `before`/`action`. */
+  function normalizeSessionPlan(raw) {
+    var list = (Array.isArray(raw) ? raw : []).map(function (s) {
+      var start = typeof s.startMin === 'number' ? s.startMin : parseInt(s.startMin, 10);
+      var enabled = !(s.enabled === false || s.enabled === 'false' || s.enabled === 0);
+      return {
+        startMin: start,
+        enabled: enabled,
+        after: s.after,
+        before: s.before,
+        action: s.action,
+        offsiteStop: s.offsiteStop,
+        offsiteUntilSocPct: s.offsiteUntilSocPct,
+        offsiteForMin: s.offsiteForMin,
+      };
+    }).filter(function (s) { return isFinite(s.startMin); });
+    list.sort(function (a, b) { return a.startMin - b.startMin; });
+    var hasAfter = list.some(function (s) {
+      return s.after != null && s.after !== '';
+    });
+    if (!hasAfter) {
+      // Legacy: charge mode lived on the *next* session as `before`/`action`.
+      for (var i = 0; i < list.length - 1; i++) {
+        var nb = list[i + 1].before != null ? list[i + 1].before : list[i + 1].action;
+        list[i].after = normalizeGapAction(nb);
+      }
+    } else {
+      for (var j = 0; j < list.length - 1; j++) {
+        list[j].after = normalizeGapAction(list[j].after);
+      }
+    }
+    return list.map(function (s, i) {
+      var out = { startMin: s.startMin, enabled: s.enabled !== false };
+      // Charge-after only for enabled non-last rows; skipped sessions inherit prior mode.
+      if (i < list.length - 1 && out.enabled) {
+        out.after = normalizeGapAction(s.after);
+        if (out.after === 'offsite') {
+          // Preserve explicit stop mode; leave unset so simulate can fall back to track defaults
+          if (s.offsiteStop != null && s.offsiteStop !== '') {
+            out.offsiteStop = normalizeOffsiteStop(s.offsiteStop);
+          }
+          var soc = parseFloat(s.offsiteUntilSocPct);
+          if (isFinite(soc) && soc > 0 && soc <= 100) out.offsiteUntilSocPct = soc;
+          var fm = parseFloat(s.offsiteForMin);
+          if (isFinite(fm) && fm > 0) out.offsiteForMin = fm;
+        }
+      }
+      return out;
+    });
+  }
   var DEFAULTS = {
     arrivalTimeMin: 8 * 60,
-    capacityKwh: 100,
-    arrivalSocNoTrailerPct: 87,
-    towingCostPct: 4,
+    chargeCurveId: DEFAULT_CHARGE_CURVE_ID,
+    capacityKwh: 99.4, // usable pack capacity (≤ vehicle max)
+    arrivalCostNoTrailerKwh: 13, // track drive-in energy without trailer
+    towingCostKwh: 4, // track: extra energy towing the trailer in
     sessionEnergyKwh: 35,
-    sessionDurationMin: 15,
+    sessionDurationMin: 20,
     coolingPerGapKwh: 6,
     preSessionCoolingKwh: 5,
+    // Site sources: portable gen+battery OR track EV connector (mutually exclusive modes).
+    genEnabled: true,
+    batteryEnabled: true,
+    gridEnabled: false,
     trailerCapKwh: 50,
     genPowerKw: 13,
+    genFuelType: 'gasoline', // 'gasoline' | 'propane'
     acdcEff: 0.94,
     fuelBurnGalPerHr: 1.3,
     dcPowerKw: 40,
     dcdcEff: 0.95,
-    sessionEndReservePct: 20,
-    firstSessionMin: 9 * 60,
-    sessionCount: 7,
-    lunchSkipHour: 12,
+    gridPowerKw: 11.5, // track EV connector power (kW)
+    sessionEndReserveKwh: 20,
+    sessions: defaultSessionPlan(),
     driveTimeMin: 30,
-    driveConsumptionPct: 14,
-    scTargetSocPct: 100,
+    driveConsumptionKwh: 14,
+    scName: 'Supercharger',
+    scStopMode: 'till', // 'till' = charge to target kWh; 'for' = charge for a fixed time
+    scTargetKwh: 100,
+    scChargeForMin: 30,
     scPowerCapKw: 250,
     minTrailerSocPct: 5,
-    supercharge: true,
-    skipS1: false, skipS2: false, skipS3: false, skipS4: true,
-    skipS5: false, skipS6: false, skipS7: false,
   };
   function defaultParams() {
-    var o = {}; for (var k in DEFAULTS) o[k] = DEFAULTS[k]; return o;
+    var o = {};
+    for (var k in DEFAULTS) o[k] = DEFAULTS[k];
+    o.sessions = defaultSessionPlan();
+    o.chargeCurveId = normalizeChargeCurveId(o.chargeCurveId);
+    o.capacityKwh = clampCapacityKwh(o.capacityKwh, o.chargeCurveId);
+    return o;
+  }
+  /** Towing only applies when bringing portable gen and/or battery trailer. */
+  function effectiveTowingKwh(p) {
+    var src = siteSources(p);
+    if (!src.gen && !src.battery) return 0;
+    var t = parseFloat(p.towingCostKwh);
+    return isFinite(t) && t > 0 ? t : 0;
   }
   function effectiveArrivalKwh(p) {
-    return (p.arrivalSocNoTrailerPct - p.towingCostPct) / 100 * p.capacityKwh;
+    var cap = clampCapacityKwh(p.capacityKwh, p.chargeCurveId);
+    return cap - p.arrivalCostNoTrailerKwh - effectiveTowingKwh(p);
+  }
+  function normalizeGapAction(a) {
+    a = String(a == null ? '' : a);
+    // migrate legacy values
+    if (a === 'run') return 'onsite';
+    if (a === 'nothing' || a === '') return 'onsite';
+    return GAP_ACTIONS.indexOf(a) >= 0 ? a : 'onsite';
+  }
+
+  /** Effective site sources: grid EV connector is exclusive of gen/battery. */
+  function siteSources(p) {
+    var grid = !!p.gridEnabled;
+    return {
+      grid: grid,
+      gen: !grid && !!p.genEnabled,
+      battery: !grid && !!p.batteryEnabled,
+    };
+  }
+  /** True when any site source can deliver energy to the car. */
+  function siteCanCharge(p) {
+    var src = siteSources(p);
+    return !!(src.grid || src.gen || src.battery);
+  }
+  /** Coerce onsite → none when no site charging is configured. */
+  function effectiveGapMode(mode, p) {
+    mode = normalizeGapAction(mode);
+    if (mode === 'onsite' && !siteCanCharge(p)) return 'none';
+    return mode;
   }
 
   function chargeDelivery(socPct, eCar, eTr, p) {
-    var headroomKw = (p.capacityKwh - eCar) * 60; // kWh headroom as 1-min power
+    var packCap = clampCapacityKwh(p.capacityKwh, p.chargeCurveId);
+    var headroomKw = (packCap - eCar) * 60; // kWh headroom as 1-min power
     if (headroomKw < 0) headroomKw = 0;
-    var acceptKw = curvePower(socPct);
-    var deliver = Math.min(p.dcPowerKw, acceptKw, headroomKw);
+    var acceptKw = curvePower(socPct, p.chargeCurveId);
+    var src = siteSources(p);
+
+    // Track EV connector: direct charge to the car (no trailer bus).
+    if (src.grid) {
+      var gridKw = Math.min(p.gridPowerKw || 0, acceptKw, headroomKw);
+      if (gridKw < 0) gridKw = 0;
+      return { deliverKw: gridKw, fromGenBusKw: 0, fromTrailerBusKw: 0, fromGridKw: gridKw };
+    }
+
+    if (!src.gen && !src.battery) {
+      return { deliverKw: 0, fromGenBusKw: 0, fromTrailerBusKw: 0, fromGridKw: 0 };
+    }
+
+    var dcdc = p.dcdcEff > 0 ? p.dcdcEff : 1;
+    var dcCap = src.battery ? p.dcPowerKw : Infinity;
+    var deliver = Math.min(dcCap, acceptKw, headroomKw);
     if (deliver < 0) deliver = 0;
 
-    var busNeed = deliver / p.dcdcEff;
-    var genBus = p.genPowerKw * p.acdcEff;
+    var busNeed = deliver / dcdc;
+    // AC-DC conversion only when generator feeds the battery DC bus
+    var acdc = (src.gen && src.battery && p.acdcEff > 0) ? p.acdcEff : 1;
+    var genBus = src.gen ? p.genPowerKw * acdc : 0;
     var fromGenBus = Math.min(genBus, busNeed);
-    var fromTrailerBus = busNeed - fromGenBus;
+    var fromTrailerBus = src.battery ? (busNeed - fromGenBus) : 0;
 
-    // trailer can only discharge down to its minimum SoC floor
-    var trailerAvailKw = Math.max(0, eTr - p.minTrailerSocPct / 100 * p.trailerCapKwh) * 60;
-    if (fromTrailerBus > trailerAvailKw) {
-      fromTrailerBus = trailerAvailKw;
-      var busActual = fromGenBus + fromTrailerBus;
-      deliver = Math.min(deliver, busActual * p.dcdcEff);
+    if (src.battery) {
+      // trailer can only discharge down to its minimum SoC floor
+      var trailerAvailKw = Math.max(0, eTr - p.minTrailerSocPct / 100 * p.trailerCapKwh) * 60;
+      if (fromTrailerBus > trailerAvailKw) {
+        fromTrailerBus = trailerAvailKw;
+        var busActual = fromGenBus + fromTrailerBus;
+        deliver = Math.min(deliver, busActual * dcdc);
+      }
+    } else {
+      // Generator only: no trailer buffer — limited by gen bus after DC-DC
+      deliver = Math.min(deliver, fromGenBus * dcdc);
+      fromTrailerBus = 0;
     }
-    return { deliverKw: deliver, fromGenBusKw: fromGenBus, fromTrailerBusKw: fromTrailerBus };
+    return { deliverKw: deliver, fromGenBusKw: fromGenBus, fromTrailerBusKw: fromTrailerBus, fromGridKw: 0 };
   }
 
   function buildSchedule(p) {
-    var sessions = [];
-    var hourMin = p.firstSessionMin;
-    while (sessions.length < p.sessionCount) {
-      if (hourMin !== p.lunchSkipHour * 60) {
-        var idx = sessions.length + 1;
-        sessions.push({
-          index: idx,
-          startMin: hourMin,
-          endMin: hourMin + p.sessionDurationMin,
-          skipped: !!p['skipS' + idx], // user chose to skip this session
-        });
+    var dur = p.sessionDurationMin > 0 ? p.sessionDurationMin : 20;
+    var arrival = p.arrivalTimeMin != null ? p.arrivalTimeMin : 8 * 60;
+    var raw = Array.isArray(p.sessions) && p.sessions.length ? p.sessions : defaultSessionPlan();
+    var plan = normalizeSessionPlan(raw);
+    var sessions = plan.map(function (s) {
+      return {
+        startMin: s.startMin,
+        endMin: s.startMin + dur,
+        enabled: s.enabled !== false,
+        after: s.after != null ? s.after : null,
+        offsiteStop: s.offsiteStop || null,
+        offsiteUntilSocPct: s.offsiteUntilSocPct != null ? s.offsiteUntilSocPct : null,
+        offsiteForMin: s.offsiteForMin != null ? s.offsiteForMin : null,
+      };
+    });
+    // Charge mode carries from the last *enabled* session's after across skipped rows.
+    var lastEnabledAfter = null;
+    var lastEnabledOffsite = null;
+    var seenEnabled = false;
+    sessions.forEach(function (s, i) {
+      s.index = i + 1;
+      s.gapStart = i === 0 ? arrival : sessions[i - 1].endMin;
+      s.gapEnd = s.startMin;
+      if (!seenEnabled) s.before = 'onsite';
+      else s.before = normalizeGapAction(lastEnabledAfter);
+      // Effective mode after this row (for UI continuation across skips)
+      if (s.enabled) {
+        seenEnabled = true;
+        lastEnabledAfter = s.after;
+        lastEnabledOffsite = s.after === 'offsite' ? {
+          stop: s.offsiteStop, untilSoc: s.offsiteUntilSocPct, forMin: s.offsiteForMin,
+        } : null;
+        s.continueAfter = s.after;
+        s.continueOffsite = lastEnabledOffsite;
+      } else {
+        s.after = null;
+        s.offsiteStop = null;
+        s.continueAfter = lastEnabledAfter;
+        s.continueOffsite = lastEnabledOffsite;
       }
-      hourMin += 60;
-    }
+    });
     return sessions;
   }
 
@@ -187,130 +688,262 @@ var Sim = (function () {
     var dt = 1 / 60;
     var sessions = buildSchedule(p);
     var startMin = p.arrivalTimeMin;
-    var endMin = sessions.length ? sessions[sessions.length - 1].endMin : startMin;
-    var cap = p.capacityKwh, tcap = p.trailerCapKwh;
-    var reserveKwh = p.sessionEndReservePct / 100 * cap; // required Plaid SoC at each session end
-    var genBusFull = p.genPowerKw * p.acdcEff;
+    var src = siteSources(p);
+    var cap = clampCapacityKwh(p.capacityKwh, p.chargeCurveId);
+    var tcap = src.battery ? p.trailerCapKwh : 0;
+    var reserveKwh = p.sessionEndReserveKwh;
+    // AC-DC only applies when gen + battery share a DC bus
+    var acdc = (src.gen && src.battery && p.acdcEff > 0) ? p.acdcEff : 1;
+    var genBusFull = src.gen ? p.genPowerKw * acdc : 0;
+    var driveDrainKw = p.driveConsumptionKwh / (p.driveTimeMin / 60);
 
-    // Supercharge departs after session 3 (index 3), returns for session 4.
-    var depSession = null, backBy = null;
-    for (var di = 0; di < sessions.length; di++) {
-      if (sessions[di].index === 3) depSession = sessions[di];
-      if (sessions[di].index === 4) backBy = sessions[di];
-    }
-    var s3End = depSession ? depSession.endMin : Infinity;
-    // Supercharge and the 1pm session (index 4) are mutually exclusive: turning on
-    // the Supercharge run always skips session 4 (you're away for it).
-    var scSkipsS4 = function (s) { return p.supercharge && s.index === 4; };
+    // Simulation horizon: 1 hour after the last session (for end-of-day SoC while charging),
+    // plus room for any offsite trip that may run longer.
+    var lastSessionEnd = startMin;
+    sessions.forEach(function (s) { if (s.endMin > lastSessionEnd) lastSessionEnd = s.endMin; });
+    var endMin = lastSessionEnd + 60;
+    var offsiteBudget = p.driveTimeMin * 2 + (p.scStopMode === 'for' ? p.scChargeForMin : 180);
+    sessions.forEach(function (s) {
+      if (s.enabled && s.after === 'offsite') {
+        endMin = Math.max(endMin, s.endMin + offsiteBudget);
+      }
+      if (s.before === 'offsite') endMin = Math.max(endMin, s.gapStart + offsiteBudget, s.endMin);
+    });
 
-    // Per-minute cooling power (kW): a pre-first-session lump (heat from the drive
-    // in), plus a lump in each gap between sessions the car actually runs. The
-    // supercharge away-trip gap (after session 3) gets no lump.
-    var runByUser = sessions.filter(function (s) { return !s.skipped && !scSkipsS4(s); });
+    // Cooling: pre-session on arrival→first enabled; post-run on onsite gaps between enabled runs.
+    // Gaps span across intentionally skipped (disabled) session rows. No cooling for "none"/offsite.
     var cooling = new Array(endMin + 1);
     for (var z = 0; z <= endMin; z++) cooling[z] = 0;
-    var preEnd = runByUser.length ? runByUser[0].startMin : startMin;
-    if (runByUser.length && preEnd > startMin && p.preSessionCoolingKwh > 0) {
-      var preKw = p.preSessionCoolingKwh / ((preEnd - startMin) / 60);
-      for (var pm = startMin; pm < preEnd; pm++) cooling[pm] = preKw;
+    var enabledSess = sessions.filter(function (s) { return s.enabled; });
+    function paintCooling(fromMin, toMin, kwh) {
+      var hours = (toMin - fromMin) / 60;
+      if (!(hours > 0) || !(kwh > 0)) return;
+      var kw = kwh / hours;
+      for (var m = fromMin; m < toMin; m++) cooling[m] = kw;
     }
-    for (var i = 0; i < runByUser.length - 1; i++) {
-      if (p.supercharge && runByUser[i].index === 3) continue; // away-trip gap
-      var gapStart = runByUser[i].endMin, gapEnd = runByUser[i + 1].startMin;
-      var gapHours = (gapEnd - gapStart) / 60;
-      var kw = p.coolingPerGapKwh / gapHours;
-      for (var m = gapStart; m < gapEnd; m++) cooling[m] = kw;
+    if (enabledSess.length && p.preSessionCoolingKwh > 0 &&
+        effectiveGapMode(enabledSess[0].before, p) === 'onsite') {
+      paintCooling(startMin, enabledSess[0].startMin, p.preSessionCoolingKwh);
+    }
+    for (var ei = 0; ei < enabledSess.length - 1; ei++) {
+      var gapMode = effectiveGapMode(enabledSess[ei].after != null
+        ? enabledSess[ei].after : enabledSess[ei + 1].before, p);
+      if (gapMode !== 'onsite') continue;
+      if (p.coolingPerGapKwh > 0) {
+        paintCooling(enabledSess[ei].endMin, enabledSess[ei + 1].startMin, p.coolingPerGapKwh);
+      }
+    }
+
+    function gapModeAt(t) {
+      // During a disabled session body: continue the mode that led into it.
+      for (var di = 0; di < sessions.length; di++) {
+        var ds = sessions[di];
+        if (ds.enabled) continue;
+        if (t >= ds.startMin && t < ds.endMin) return effectiveGapMode(ds.before, p);
+      }
+      for (var gi = 0; gi < sessions.length; gi++) {
+        var gs = sessions[gi];
+        if (t >= gs.gapStart && t < gs.gapEnd) return effectiveGapMode(gs.before, p);
+      }
+      // Trailing hour after last session: onsite only if site charging is available.
+      if (t >= lastSessionEnd) return siteCanCharge(p) ? 'onsite' : 'none';
+      return 'none';
     }
 
     var eCar = effectiveArrivalKwh(p);
     var eTr = tcap;
     var genRuntimeMin = 0, genAcKwh = 0;
-    var fromTrailer = 0, fromGenerator = 0, fromSupercharger = 0;
-    var minSocKwh = Infinity, minSocAtMin = startMin; // lowest SoC at a session end (the on-track low)
+    var fromTrailer = 0, fromGenerator = 0, fromSupercharger = 0, fromGrid = 0;
+    var minSocKwh = Infinity, minSocAtMin = startMin;
     var timeline = [];
 
-    // Supercharge trip state machine (only runs when p.supercharge).
-    var trip = { phase: p.supercharge ? 'before' : 'off',
-                 driveEndMin: null, scStartMin: null, scEndMin: null,
-                 scArrivalSocPct: null, returnMin: null };
-    var driveDrainKw = (p.driveConsumptionPct / 100 * cap) / (p.driveTimeMin / 60);
+    // Offsite trips: after an enabled session chooses offsite, target the next enabled session.
+    var offsiteQueue = [];
+    for (var oi = 0; oi < sessions.length; oi++) {
+      var os = sessions[oi];
+      if (!os.enabled || os.after !== 'offsite') continue;
+      var dest = null;
+      for (var oj = oi + 1; oj < sessions.length; oj++) {
+        if (sessions[oj].enabled) { dest = sessions[oj]; break; }
+      }
+      if (!dest) continue;
+      var stop = normalizeOffsiteStop(os.offsiteStop);
+      var untilSoc = parseFloat(os.offsiteUntilSocPct);
+      if (!isFinite(untilSoc) || untilSoc <= 0) untilSoc = 80;
+      if (untilSoc > 100) untilSoc = 100;
+      var forMin = parseFloat(os.offsiteForMin);
+      if (!isFinite(forMin) || forMin <= 0) forMin = p.scChargeForMin > 0 ? p.scChargeForMin : 30;
+      // Legacy track-level defaults when session lacks explicit stop mode
+      if (os.offsiteStop == null && p.scStopMode === 'for') stop = 'for';
+      else if (os.offsiteStop == null && p.scStopMode === 'till') {
+        stop = 'until';
+        // scTargetKwh → approx SoC % of pack
+        if (p.scTargetKwh > 0 && cap > 0) {
+          untilSoc = Math.min(100, Math.max(1, (p.scTargetKwh / cap) * 100));
+        }
+      }
+      offsiteQueue.push({
+        gapStart: os.endMin,
+        sessionIndex: dest.index,
+        mustReturnBy: dest.startMin,
+        stopMode: stop,
+        untilSocPct: untilSoc,
+        forMin: forMin,
+      });
+    }
+    var trip = {
+      phase: 'idle', // idle | out | sc | back
+      sessionIndex: null,
+      job: null,
+      departMin: null,
+      driveEndMin: null, scStartMin: null, scEndMin: null,
+      scArrivalSocPct: null, returnMin: null, lastReturnMin: null,
+      trips: [],
+    };
 
     function sessionAt(t) {
+      // Only enabled track sessions actually run.
       for (var s = 0; s < sessions.length; s++) {
+        if (!sessions[s].enabled) continue;
         if (t >= sessions[s].startMin && t < sessions[s].endMin) return sessions[s];
       }
       return null;
     }
+    function gapSessionAt(t) {
+      // which session's leading gap contains t?
+      for (var s = 0; s < sessions.length; s++) {
+        if (t >= sessions[s].gapStart && t < sessions[s].gapEnd) return sessions[s];
+      }
+      return null;
+    }
     function refillTrailer(busKw) {
-      // generator dumps up to busKw onto the trailer (capped by headroom)
+      if (!src.battery || !src.gen || tcap <= 0) return 0;
       var headKw = (tcap - eTr) * 60;
       var into = Math.min(busKw, headKw);
       if (into < 0) into = 0;
       eTr += into * dt;
-      genAcKwh += (p.acdcEff > 0 ? into / p.acdcEff : 0) * dt;
+      genAcKwh += (into / acdc) * dt;
       fromGenerator += into * dt;
       return into;
+    }
+    function chargeCarOnsite(coolKw) {
+      var cd = chargeDelivery(Math.max(0, eCar) / cap * 100, eCar, eTr, p);
+      var net = cd.deliverKw - coolKw;
+      eCar += net * dt;
+      if (src.battery) eTr -= cd.fromTrailerBusKw * dt;
+      fromTrailer += cd.fromTrailerBusKw * dt;
+      fromGenerator += cd.fromGenBusKw * dt;
+      fromGrid += (cd.fromGridKw || 0) * dt;
+      genAcKwh += (cd.fromGenBusKw / acdc) * dt;
+      var surplus = genBusFull - cd.fromGenBusKw;
+      var refilled = 0;
+      if (src.gen && src.battery && surplus > 1e-9 && eTr < tcap) refilled = refillTrailer(surplus);
+      // Generator "on" when feeding the car or topping the trailer
+      return src.gen && (cd.fromGenBusKw > 1e-9 || refilled > 1e-9);
     }
 
     for (var t = startMin; t < endMin; t++) {
       var mode = null, coolKw = 0, genOn = false;
 
-      // ---- Supercharge trip overrides ----
-      if (trip.phase !== 'off' && trip.phase !== 'done') {
-        if (trip.phase === 'before' && t >= s3End) {
-          trip.phase = 'out'; trip.driveEndMin = t + p.driveTimeMin;
+      // ---- Offsite trip state machine ----
+      if (trip.phase === 'idle' && offsiteQueue.length && t >= offsiteQueue[0].gapStart) {
+        var job = offsiteQueue.shift();
+        trip.phase = 'out';
+        trip.job = job;
+        trip.sessionIndex = job.sessionIndex;
+        trip.departMin = t;
+        trip.driveEndMin = t + p.driveTimeMin;
+        trip.scStartMin = null; trip.scEndMin = null; trip.scArrivalSocPct = null; trip.returnMin = null;
+      }
+      if (trip.phase === 'out') {
+        mode = 'DRIVE';
+        eCar -= driveDrainKw * dt;
+        if (src.gen && src.battery && eTr < tcap) {
+          genOn = refillTrailer(genBusFull) > 1e-9;
         }
-        if (trip.phase === 'out') {
-          mode = 'DRIVE';
-          eCar -= driveDrainKw * dt;
-          if (eTr < tcap) { genOn = true; refillTrailer(genBusFull); }
-          if (t + 1 >= trip.driveEndMin) { trip.phase = 'sc'; trip.scStartMin = t + 1;
-            trip.scArrivalSocPct = eCar / cap * 100; }
-        } else if (trip.phase === 'sc') {
-          mode = 'SC';
-          var scKw = Math.min(curvePower(Math.max(0, eCar) / cap * 100), p.scPowerCapKw);
-          var targetKwh = p.scTargetSocPct / 100 * cap;
-          var head = (Math.min(cap, targetKwh) - eCar) * 60; if (head < 0) head = 0;
-          if (scKw > head) scKw = head;
-          eCar += scKw * dt; fromSupercharger += scKw * dt;
-          if (eTr < tcap) { genOn = true; refillTrailer(genBusFull); }
-          if (eCar / cap * 100 >= p.scTargetSocPct - 1e-9 || eCar >= cap - 1e-9) {
-            trip.phase = 'back'; trip.scEndMin = t + 1; trip.driveEndMin = t + 1 + p.driveTimeMin;
-          }
-        } else if (trip.phase === 'back') {
-          mode = 'DRIVE';
-          eCar -= driveDrainKw * dt;
-          if (eTr < tcap) { genOn = true; refillTrailer(genBusFull); }
-          if (t + 1 >= trip.driveEndMin) { trip.phase = 'done'; trip.returnMin = t + 1; }
+        if (t + 1 >= trip.driveEndMin) {
+          trip.phase = 'sc'; trip.scStartMin = t + 1;
+          trip.scArrivalSocPct = eCar / cap * 100;
+        }
+      } else if (trip.phase === 'sc') {
+        mode = 'SC';
+        var jobSc = trip.job || {};
+        var stopMode = jobSc.stopMode || 'next';
+        var scKw = Math.min(curvePower(Math.max(0, eCar) / cap * 100, p.chargeCurveId), p.scPowerCapKw);
+        // Target energy: until-SoC mode only; otherwise charge until leave time / dwell ends
+        var targetKwh = cap;
+        if (stopMode === 'until') {
+          var socT = jobSc.untilSocPct != null ? jobSc.untilSocPct : 80;
+          targetKwh = Math.min(cap, (socT / 100) * cap);
+        }
+        var head = (targetKwh - eCar) * 60; if (head < 0) head = 0;
+        if (scKw > head) scKw = head;
+        eCar += scKw * dt; fromSupercharger += scKw * dt;
+        if (src.gen && src.battery && eTr < tcap) {
+          genOn = refillTrailer(genBusFull) > 1e-9;
+        }
+        var done = eCar >= cap - 1e-9;
+        if (stopMode === 'for') {
+          var dwell = jobSc.forMin > 0 ? jobSc.forMin : 30;
+          done = done || ((t + 1 - trip.scStartMin) >= dwell);
+        } else if (stopMode === 'until') {
+          done = done || (eCar >= targetKwh - 1e-9);
+        } else {
+          // until next session: leave in time to drive back for dest start
+          var leaveBy = (jobSc.mustReturnBy != null ? jobSc.mustReturnBy : endMin) - p.driveTimeMin;
+          done = done || ((t + 1) >= leaveBy);
+        }
+        if (done) {
+          trip.phase = 'back'; trip.scEndMin = t + 1; trip.driveEndMin = t + 1 + p.driveTimeMin;
+        }
+      } else if (trip.phase === 'back') {
+        mode = 'DRIVE';
+        eCar -= driveDrainKw * dt;
+        if (src.gen && src.battery && eTr < tcap) {
+          genOn = refillTrailer(genBusFull) > 1e-9;
+        }
+        if (t + 1 >= trip.driveEndMin) {
+          trip.returnMin = t + 1;
+          trip.lastReturnMin = t + 1;
+          trip.trips.push({
+            sessionIndex: trip.sessionIndex,
+            departMin: trip.departMin,
+            scStartMin: trip.scStartMin,
+            scEndMin: trip.scEndMin,
+            scArrivalSocPct: trip.scArrivalSocPct,
+            scDurationMin: (trip.scEndMin != null && trip.scStartMin != null)
+              ? trip.scEndMin - trip.scStartMin : null,
+            returnMin: trip.returnMin,
+          });
+          trip.phase = 'idle';
+          trip.sessionIndex = null;
+          trip.job = null;
         }
       }
 
-      // ---- Normal modes ----
+      // ---- On-track / paddock modes ----
       if (!mode) {
         var s = sessionAt(t);
-        // A session that started while the car was away supercharging is skipped
-        // entirely — never drawn, even for its post-return minutes.
-        var awaySkipped = s && p.supercharge && trip.returnMin != null &&
-                          s.startMin >= s3End && s.startMin < trip.returnMin;
-        var run = s && !s.skipped && !scSkipsS4(s) && !awaySkipped;
-        if (run) {
+        if (s) {
+          // Every session entry is a run (if the car is present).
           mode = 'SESSION';
           var rate = p.sessionEnergyKwh / (p.sessionDurationMin / 60);
           eCar -= rate * dt;
-          if (eTr < tcap) { genOn = true; refillTrailer(genBusFull); }
+          if (src.gen && src.battery && eTr < tcap) {
+            genOn = refillTrailer(genBusFull) > 1e-9;
+          }
         } else {
-          mode = s ? 'SKIP' : 'CHARGE'; // a skipped-session slot, or a between-session gap
+          // Gap / trailing time. Offsite gaps after the trip returns act as onsite (or none).
+          var gMode = gapModeAt(t);
+          if (gMode === 'offsite') gMode = siteCanCharge(p) ? 'onsite' : 'none';
           coolKw = cooling[t] || 0;
-          var cd = chargeDelivery(Math.max(0, eCar) / cap * 100, eCar, eTr, p);
-          var net = cd.deliverKw - coolKw;
-          eCar += net * dt;
-          eTr -= cd.fromTrailerBusKw * dt;
-          fromTrailer += cd.fromTrailerBusKw * dt;
-          fromGenerator += cd.fromGenBusKw * dt;
-          genAcKwh += (p.acdcEff > 0 ? cd.fromGenBusKw / p.acdcEff : 0) * dt;
-          genOn = true;
-          var surplus = genBusFull - cd.fromGenBusKw;
-          if (surplus > 1e-9 && eTr < tcap) refillTrailer(surplus);
+          if (gMode === 'onsite') {
+            mode = 'CHARGE';
+            genOn = chargeCarOnsite(coolKw);
+          } else {
+            mode = 'IDLE';
+            if (coolKw > 0) eCar -= coolKw * dt;
+          }
         }
       }
 
@@ -326,21 +959,53 @@ var Sim = (function () {
       });
     }
 
-    if (!isFinite(minSocKwh)) { minSocKwh = eCar; minSocAtMin = endMin; } // no sessions ran
-    var fuelGal = p.genPowerKw > 0 ? genAcKwh * (p.fuelBurnGalPerHr / p.genPowerKw) : 0;
+    if (!isFinite(minSocKwh)) { minSocKwh = eCar; minSocAtMin = endMin; }
+    var fuelGal = (src.gen && p.genPowerKw > 0)
+      ? genAcKwh * (p.fuelBurnGalPerHr / p.genPowerKw) : 0;
 
-    // Sessions not run: user-skipped, plus any the car was away for while supercharging
-    // (between departure and return, or all of them if it never returns).
-    var awayEnd = (trip.phase === 'off' || trip.phase === 'before') ? -Infinity
-                : (trip.returnMin != null ? trip.returnMin : Infinity);
-    var skippedSessions = [];
-    for (var sj = 0; sj < sessions.length; sj++) {
-      var ss = sessions[sj];
-      var sc = scSkipsS4(ss) || (ss.startMin >= s3End && ss.startMin < awayEnd);
-      if (ss.skipped || sc) {
-        skippedSessions.push({ index: ss.index, startMin: ss.startMin, reason: sc ? 'supercharge' : 'skip' });
+    // Which planned enabled sessions actually got SESSION minutes?
+    var ranIdx = {};
+    timeline.forEach(function (pt) {
+      if (pt.mode !== 'SESSION') return;
+      var ss = sessionAt(pt.min);
+      if (ss) ranIdx[ss.index] = true;
+    });
+    var skippedSessions = []; // missed (e.g. away offsite) among enabled sessions
+    var disabledSessions = []; // intentionally unchecked in the plan
+    var sessionsRun = 0;
+    var enabledCount = 0;
+    sessions.forEach(function (ss) {
+      if (!ss.enabled) {
+        disabledSessions.push({
+          index: ss.index, startMin: ss.startMin, reason: 'disabled',
+        });
+        return;
       }
+      enabledCount++;
+      if (ranIdx[ss.index]) {
+        sessionsRun++;
+      } else {
+        skippedSessions.push({
+          index: ss.index, startMin: ss.startMin, reason: 'missed', before: ss.before,
+        });
+      }
+    });
+
+    var allTrips = trip.trips.slice();
+    // Incomplete final trip (never returned)
+    if (trip.phase !== 'idle') {
+      allTrips.push({
+        sessionIndex: trip.sessionIndex,
+        departMin: trip.departMin,
+        scStartMin: trip.scStartMin,
+        scEndMin: trip.scEndMin,
+        scArrivalSocPct: trip.scArrivalSocPct,
+        scDurationMin: (trip.scEndMin != null && trip.scStartMin != null)
+          ? trip.scEndMin - trip.scStartMin : null,
+        returnMin: null,
+      });
     }
+    var lastTrip = allTrips.length ? allTrips[allTrips.length - 1] : null;
 
     var metrics = {
       feasible: minSocKwh >= reserveKwh - 1e-9,
@@ -349,25 +1014,48 @@ var Sim = (function () {
       endSocKwh: eCar, endSocPct: eCar / cap * 100,
       trailerEndKwh: eTr, trailerEndPct: tcap > 0 ? eTr / tcap * 100 : 0,
       genRuntimeHr: genRuntimeMin / 60, fuelGal: fuelGal, genAcKwh: genAcKwh,
+      genFuelType: (p.genFuelType === 'propane') ? 'propane' : 'gasoline',
       fromArrivalKwh: effectiveArrivalKwh(p),
       fromTrailerKwh: fromTrailer, fromGeneratorKwh: fromGenerator,
+      fromGridKwh: fromGrid,
       fromSuperchargerKwh: fromSupercharger,
-      sessionsRun: sessions.length - skippedSessions.length,
+      sessionsRun: sessionsRun,
+      plannedSessions: sessions.length,
+      enabledSessions: enabledCount,
+      disabledSessions: disabledSessions,
       skippedSessions: skippedSessions,
-      sc: p.supercharge ? {
-        scArrivalSocPct: trip.scArrivalSocPct,
-        scDurationMin: (trip.scEndMin != null && trip.scStartMin != null)
-          ? trip.scEndMin - trip.scStartMin : null,
-        returnMin: trip.returnMin,
-        backBefore1pm: (trip.returnMin != null && backBy) ? trip.returnMin <= backBy.startMin : false,
+      trips: allTrips,
+      sc: lastTrip ? {
+        name: p.scName || '',
+        scArrivalSocPct: lastTrip.scArrivalSocPct,
+        scDurationMin: lastTrip.scDurationMin,
+        returnMin: lastTrip.returnMin,
+        trips: allTrips.length,
       } : null,
     };
     return { timeline: timeline, metrics: metrics };
   }
-  return { PLAID_V3_CURVE: PLAID_V3_CURVE, curvePower: curvePower,
-           defaultParams: defaultParams, effectiveArrivalKwh: effectiveArrivalKwh,
-           buildSchedule: buildSchedule, chargeDelivery: chargeDelivery,
-           simulate: simulate };
+  return {
+    PLAID_V3_CURVE: CURVE_MODEL_S_PLAID, // alias for older tests
+    CURVE_MODEL_S_PLAID: CURVE_MODEL_S_PLAID,
+    CURVE_MODEL_3_PERFORMANCE: CURVE_MODEL_3_PERFORMANCE,
+    CHARGE_CURVES: CHARGE_CURVES,
+    DEFAULT_CHARGE_CURVE_ID: DEFAULT_CHARGE_CURVE_ID,
+    VEHICLE_CAPACITY_MAX_KWH: VEHICLE_CAPACITY_MAX_KWH,
+    VEHICLE_CAPACITY_DEFAULT_KWH: VEHICLE_CAPACITY_DEFAULT_KWH,
+    getChargeCurve: getChargeCurve,
+    normalizeChargeCurveId: normalizeChargeCurveId,
+    maxCapacityKwh: maxCapacityKwh,
+    clampCapacityKwh: clampCapacityKwh,
+    curvePower: curvePower,
+    defaultParams: defaultParams, defaultSessionPlan: defaultSessionPlan,
+    normalizeSessionPlan: normalizeSessionPlan, normalizeOffsiteStop: normalizeOffsiteStop,
+    effectiveArrivalKwh: effectiveArrivalKwh, effectiveTowingKwh: effectiveTowingKwh,
+    normalizeGapAction: normalizeGapAction,
+    buildSchedule: buildSchedule, chargeDelivery: chargeDelivery, siteSources: siteSources,
+    siteCanCharge: siteCanCharge, effectiveGapMode: effectiveGapMode,
+    simulate: simulate, GAP_ACTIONS: GAP_ACTIONS,
+  };
 })();
 // SIM_ENGINE_END
 </script>
@@ -386,73 +1074,194 @@ var UI = (function () {
   var num = function (key, mul) {
     return function (out, v) { out[key] = (mul == null ? 1 : mul) * parseFloat(v); };
   };
-  var check = function (key) {
-    return function (out, v) { out[key] = (v === true || v === 'true'); };
-  };
-  var run = function (key) { // a "run this session" checkbox maps to the engine's skip flag
-    return function (out, v) { out[key] = !(v === true || v === 'true'); };
-  };
-  // Car = vehicle pack & session energy. Track = day schedule + nearby public charger.
+  // EV = vehicle model (charge curve) + usable capacity + on-track energy.
+  // Track = schedule, drive-in costs, offsite charger.
   // Site = portable trailer/generator + DC charge hardware at the track.
-  // Day plan / session skips stay outside profiles.
   var CAR_FIELD_IDS = [
-    'capacityKwh', 'arrivalSocNoTrailerPct', 'towingCostPct', 'sessionEnergyKwh',
-    'coolingPerGapKwh', 'preSessionCoolingKwh', 'sessionEndReservePct',
+    'chargeCurveId', 'capacityKwh', 'sessionEnergyKwh',
+    'coolingPerGapKwh', 'preSessionCoolingKwh', 'sessionEndReserveKwh',
   ];
+  // Track scalar fields (session list is stored separately as values.sessions).
   var TRACK_FIELD_IDS = [
-    'arrivalTime', 'firstSession', 'sessionCount', 'sessionDurationMin',
-    'driveTimeMin', 'driveConsumptionPct', 'scTargetSocPct', 'scPowerCapKw',
+    'arrivalTime', 'sessionDurationMin', 'arrivalCostNoTrailerKwh', 'towingCostKwh',
+    'driveTimeMin', 'driveConsumptionKwh', 'scName', 'scStopMode', 'scTargetKwh', 'scChargeForMin', 'scPowerCapKw',
   ];
   var SITE_FIELD_IDS = [
-    'trailerCapKwh', 'genPowerKw', 'acdcEffPct', 'fuelBurnGalPerHr', 'minTrailerSocPct',
-    'dcPowerKw', 'dcdcEffPct',
+    'genEnabled', 'genPowerKw', 'genFuelType', 'fuelBurnGalPerHr',
+    'batteryEnabled', 'trailerCapKwh', 'minTrailerSocPct', 'dcPowerKw', 'dcdcEffPct', 'acdcEffPct',
+    'gridEnabled', 'gridPowerKw',
   ];
   var PROFILE_KINDS = ['car', 'track', 'site'];
+  // How to charge in the gap after a run session (until the next).
+  var GAP_ACTION_OPTIONS = [
+    { value: 'onsite', label: 'Charge onsite' },
+    { value: 'offsite', label: 'Charge offsite' },
+    { value: 'none', label: 'No charging' },
+  ];
+  var VEHICLE_OPTIONS = [
+    { value: 'model-s-plaid', label: 'Tesla Model S Plaid' },
+    { value: 'model-3-performance', label: 'Tesla Model 3 Performance' },
+  ];
 
   var UI_FIELDS = [
-    { g:'Car', id:'capacityKwh', label:'Capacity', unit:'kWh', step:1, default:100, min:1, set:num('capacityKwh') },
-    { g:'Car', id:'arrivalSocNoTrailerPct', label:'Arrival SoC (no trailer)', unit:'%', step:1, default:87, set:num('arrivalSocNoTrailerPct') },
-    { g:'Car', id:'towingCostPct', label:'Towing cost', unit:'% pack', step:1, default:4, set:num('towingCostPct') },
-    { g:'Car', id:'sessionEnergyKwh', label:'Energy / session', unit:'kWh', step:1, default:35, set:num('sessionEnergyKwh') },
-    { g:'Car', id:'coolingPerGapKwh', label:'Cooling / gap', unit:'kWh', step:0.5, default:6, min:0, set:num('coolingPerGapKwh') },
-    { g:'Car', id:'preSessionCoolingKwh', label:'Pre-session cooling', unit:'kWh', step:0.5, default:5, min:0, set:num('preSessionCoolingKwh') },
-    { g:'Car', id:'sessionEndReservePct', label:'Session end reserve', unit:'%', step:1, default:20, min:0, max:100, set:num('sessionEndReservePct') },
+    { g:'EV', id:'chargeCurveId', label:'Vehicle', kind:'select', default:'model-s-plaid',
+      options: VEHICLE_OPTIONS,
+      set:function(o,v){
+        o.chargeCurveId = (v === 'model-3-performance') ? 'model-3-performance' : 'model-s-plaid';
+      } },
+    { g:'EV', id:'capacityKwh', label:'Capacity', unit:'kWh', step:0.1, default:99.4, min:1, max:99.4,
+      set:function(o,v){
+        var curve = o.chargeCurveId || 'model-s-plaid';
+        var max = (typeof Sim !== 'undefined' && Sim.maxCapacityKwh)
+          ? Sim.maxCapacityKwh(curve) : 99.4;
+        var cap = parseFloat(v);
+        if (!isFinite(cap) || cap < 1) cap = 1;
+        if (cap > max) cap = max;
+        o.capacityKwh = cap;
+      } },
+    { g:'EV', id:'sessionEnergyKwh', label:'Energy / session', unit:'kWh', step:1, default:35, set:num('sessionEnergyKwh') },
+    { g:'EV', id:'coolingPerGapKwh', label:'Post-session cooling', unit:'kWh', step:0.5, default:6, min:0, set:num('coolingPerGapKwh') },
+    { g:'EV', id:'preSessionCoolingKwh', label:'Pre-session cooling', unit:'kWh', step:0.5, default:5, min:0, set:num('preSessionCoolingKwh') },
+    { g:'EV', id:'sessionEndReserveKwh', label:'Session end reserve', unit:'kWh', step:1, default:20, min:0, set:num('sessionEndReserveKwh') },
 
     { g:'Track', id:'arrivalTime', label:'Arrival', kind:'time', default:'08:00',
       set:function(o,v){ o.arrivalTimeMin = hhmmToMin(v); } },
-    { g:'Track', id:'firstSession', label:'First session', kind:'time', default:'09:00',
-      set:function(o,v){ o.firstSessionMin = hhmmToMin(v); } },
-    { g:'Track', id:'sessionCount', label:'# sessions', unit:'', step:1, default:7, min:1, set:num('sessionCount') },
-    { g:'Track', id:'sessionDurationMin', label:'Session length', unit:'min', step:1, default:15, min:1, set:num('sessionDurationMin') },
-    { g:'Track', id:'driveTimeMin', label:'Drive to charger', unit:'min', step:1, default:30, min:1, set:num('driveTimeMin') },
-    { g:'Track', id:'driveConsumptionPct', label:'Drive cost / leg', unit:'% pack', step:1, default:14, set:num('driveConsumptionPct') },
-    { g:'Track', id:'scTargetSocPct', label:'Charger target SoC', unit:'%', step:1, default:100, set:num('scTargetSocPct') },
-    { g:'Track', id:'scPowerCapKw', label:'Charger power cap', unit:'kW', step:5, default:250, min:1, set:num('scPowerCapKw') },
+    { g:'Track', id:'sessionDurationMin', label:'Session length', unit:'min', step:1, default:20, min:1, set:num('sessionDurationMin') },
+    { g:'Track', id:'arrivalCostNoTrailerKwh', label:'Arrival cost (no trailer)', unit:'kWh', step:0.5, default:13, min:0, set:num('arrivalCostNoTrailerKwh') },
+    { g:'Track', id:'towingCostKwh', label:'Towing cost', unit:'kWh', step:0.5, default:4, min:0, set:num('towingCostKwh') },
 
-    { g:'Site Charging', id:'trailerCapKwh', label:'Trailer battery', unit:'kWh', step:1, default:50, set:num('trailerCapKwh') },
-    { g:'Site Charging', id:'genPowerKw', label:'Generator', unit:'kW', step:0.5, default:13, min:0, set:num('genPowerKw') },
-    { g:'Site Charging', id:'acdcEffPct', label:'AC-DC eff', unit:'%', step:1, default:94, min:1, max:100, set:function(o,v){ o.acdcEff = parseFloat(v)/100; } },
-    { g:'Site Charging', id:'fuelBurnGalPerHr', label:'Fuel burn', unit:'gal/hr', step:0.1, default:1.3, set:num('fuelBurnGalPerHr') },
-    { g:'Site Charging', id:'minTrailerSocPct', label:'Min trailer SoC', unit:'%', step:1, default:5, min:0, max:100, set:num('minTrailerSocPct') },
-    { g:'Site Charging', id:'dcPowerKw', label:'DC charge', unit:'kW', step:1, default:40, set:num('dcPowerKw') },
-    { g:'Site Charging', id:'dcdcEffPct', label:'DC-DC eff', unit:'%', step:1, default:95, min:1, max:100, set:function(o,v){ o.dcdcEff = parseFloat(v)/100; } },
+    { g:'Track', sub:'Offsite', id:'scName', label:'Charger name', kind:'text', default:'Supercharger',
+      set:function(o,v){ o.scName = String(v == null ? '' : v); } },
+    { g:'Track', sub:'Offsite', id:'driveTimeMin', label:'One-way drive time', unit:'min', step:1, default:30, min:1, set:num('driveTimeMin') },
+    { g:'Track', sub:'Offsite', id:'driveConsumptionKwh', label:'One-way cost', unit:'kWh', step:0.5, default:14, min:0, set:num('driveConsumptionKwh') },
+    { g:'Track', sub:'Offsite', id:'scStopMode', label:'Charge stop', kind:'select', default:'till',
+      options:[{ value:'till', label:'Charge till' }, { value:'for', label:'Charge for' }],
+      set:function(o,v){ o.scStopMode = (v === 'for') ? 'for' : 'till'; } },
+    { g:'Track', sub:'Offsite', id:'scTargetKwh', label:'Charge till', unit:'kWh', step:1, default:100, min:1, set:num('scTargetKwh') },
+    { g:'Track', sub:'Offsite', id:'scChargeForMin', label:'Charge for', unit:'min', step:1, default:30, min:1, set:num('scChargeForMin') },
+    { g:'Track', sub:'Offsite', id:'scPowerCapKw', label:'Offsite charger power', unit:'kW', step:5, default:250, min:1, set:num('scPowerCapKw') },
 
-    { g:'Day plan', id:'supercharge', label:'Public charge after session 3 (skips session 4)', kind:'check', default:true, set:check('supercharge') },
+    { g:'Site Charging', sub:'Generator', id:'genEnabled', label:'Generator', kind:'check', default:true, subEnable:true,
+      set:function(o,v){ o.genEnabled = (v === true || v === 'true'); } },
+    { g:'Site Charging', sub:'Generator', id:'genPowerKw', label:'Power', unit:'kW', step:0.5, default:13, min:0, set:num('genPowerKw') },
+    { g:'Site Charging', sub:'Generator', id:'genFuelType', label:'Fuel', kind:'select', default:'gasoline',
+      options:[{ value:'gasoline', label:'Gasoline' }, { value:'propane', label:'Propane' }],
+      set:function(o,v){ o.genFuelType = (v === 'propane') ? 'propane' : 'gasoline'; } },
+    { g:'Site Charging', sub:'Generator', id:'fuelBurnGalPerHr', label:'Fuel burn', unit:'gal/hr', step:0.1, default:1.3, set:num('fuelBurnGalPerHr') },
 
-    { g:'Sessions', id:'runS1', label:'9:00', kind:'check', default:true, set:run('skipS1') },
-    { g:'Sessions', id:'runS2', label:'10:00', kind:'check', default:true, set:run('skipS2') },
-    { g:'Sessions', id:'runS3', label:'11:00', kind:'check', default:true, set:run('skipS3') },
-    { g:'Sessions', id:'runS4', label:'1:00', kind:'check', default:false, set:run('skipS4') },
-    { g:'Sessions', id:'runS5', label:'2:00', kind:'check', default:true, set:run('skipS5') },
-    { g:'Sessions', id:'runS6', label:'3:00', kind:'check', default:true, set:run('skipS6') },
-    { g:'Sessions', id:'runS7', label:'4:00', kind:'check', default:true, set:run('skipS7') },
+    { g:'Site Charging', sub:'Battery', id:'batteryEnabled', label:'Battery', kind:'check', default:true, subEnable:true,
+      set:function(o,v){ o.batteryEnabled = (v === true || v === 'true'); } },
+    { g:'Site Charging', sub:'Battery', id:'trailerCapKwh', label:'Capacity', unit:'kWh', step:1, default:50, set:num('trailerCapKwh') },
+    { g:'Site Charging', sub:'Battery', id:'minTrailerSocPct', label:'Min SoC', unit:'%', step:1, default:5, min:0, max:100, set:num('minTrailerSocPct') },
+    { g:'Site Charging', sub:'Battery', id:'dcPowerKw', label:'DC charge', unit:'kW', step:1, default:40, set:num('dcPowerKw') },
+    { g:'Site Charging', sub:'Battery', id:'dcdcEffPct', label:'DC-DC eff', unit:'%', step:1, default:95, min:1, max:100, set:function(o,v){ o.dcdcEff = parseFloat(v)/100; } },
+    // Only meaningful when generator feeds the battery DC bus (both enabled)
+    { g:'Site Charging', sub:'Battery', id:'acdcEffPct', label:'AC-DC eff', unit:'%', step:1, default:94, min:1, max:100, set:function(o,v){ o.acdcEff = parseFloat(v)/100; } },
+
+    { g:'Site Charging', sub:'Grid', id:'gridEnabled', label:'Onsite EV connector', kind:'check', default:false, subEnable:true,
+      set:function(o,v){ o.gridEnabled = (v === true || v === 'true'); } },
+    { g:'Site Charging', sub:'Grid', id:'gridPowerKw', label:'Power', unit:'kW', step:0.5, default:11.5, min:0, set:num('gridPowerKw') },
   ];
+
+  function defaultSessionsForm() {
+    var plan = (typeof Sim !== 'undefined' && Sim.defaultSessionPlan)
+      ? Sim.defaultSessionPlan()
+      : [
+          { startMin: 9 * 60, after: 'onsite' }, { startMin: 10 * 60, after: 'onsite' },
+          { startMin: 11 * 60, after: 'offsite' }, { startMin: 13 * 60, after: 'onsite' },
+          { startMin: 14 * 60, after: 'onsite' }, { startMin: 15 * 60, after: 'onsite' },
+          { startMin: 16 * 60 },
+        ];
+    return plan.map(function (s, i) {
+      var row = { start: minToHHMM(s.startMin), enabled: s.enabled !== false };
+      if (i < plan.length - 1) {
+        row.after = normalizeGapForm(s.after);
+        if (row.after === 'offsite') {
+          attachOffsiteFields(row, s);
+        }
+      }
+      return row;
+    });
+  }
+  function normalizeGapForm(a) {
+    a = String(a == null ? '' : a);
+    if (a === 'run' || a === '') return 'onsite';
+    if (a === 'nothing' || a === 'none') return 'none';
+    if (a === 'offsite') return 'offsite';
+    if (a === 'onsite') return 'onsite';
+    return 'onsite';
+  }
+  function normalizeOffsiteStopForm(v) {
+    v = String(v == null ? '' : v);
+    if (v === 'until' || v === 'till') return 'until';
+    if (v === 'for') return 'for';
+    return 'next';
+  }
+  function attachOffsiteFields(out, src) {
+    out.offsiteStop = normalizeOffsiteStopForm(src && src.offsiteStop);
+    var soc = parseFloat(src && src.offsiteUntilSocPct);
+    out.offsiteUntilSocPct = (isFinite(soc) && soc > 0 && soc <= 100) ? soc : 80;
+    var fm = parseFloat(src && src.offsiteForMin);
+    out.offsiteForMin = (isFinite(fm) && fm > 0) ? fm : 30;
+    return out;
+  }
+  function normalizeSessionsForm(list) {
+    if (!Array.isArray(list) || !list.length) return defaultSessionsForm();
+    var rows = list.map(function (s) {
+      var start = s.start != null ? String(s.start)
+        : (s.startMin != null ? minToHHMM(+s.startMin) : '09:00');
+      var enabled = !(s.enabled === false || s.enabled === 'false' || s.enabled === 0);
+      return {
+        start: start,
+        enabled: enabled,
+        after: s.after,
+        before: s.before != null ? s.before : s.action,
+        offsiteStop: s.offsiteStop,
+        offsiteUntilSocPct: s.offsiteUntilSocPct,
+        offsiteForMin: s.offsiteForMin,
+      };
+    });
+    rows.sort(function (a, b) { return hhmmToMin(a.start) - hhmmToMin(b.start); });
+    var hasAfter = rows.some(function (r) { return r.after != null && r.after !== ''; });
+    if (!hasAfter) {
+      // Legacy before-on-next → after-on-previous
+      for (var i = 0; i < rows.length - 1; i++) {
+        rows[i].after = normalizeGapForm(rows[i + 1].before);
+      }
+    }
+    return rows.map(function (r, i) {
+      var out = { start: r.start, enabled: r.enabled !== false };
+      if (i < rows.length - 1 && out.enabled) {
+        out.after = normalizeGapForm(r.after);
+        if (out.after === 'offsite') attachOffsiteFields(out, r);
+      }
+      return out;
+    });
+  }
+  function sessionsToEngine(list) {
+    return normalizeSessionsForm(list).map(function (s) {
+      var o = { startMin: hhmmToMin(s.start), enabled: s.enabled !== false };
+      if (s.after != null && o.enabled) {
+        o.after = s.after;
+        if (o.after === 'offsite') {
+          o.offsiteStop = s.offsiteStop;
+          o.offsiteUntilSocPct = s.offsiteUntilSocPct;
+          o.offsiteForMin = s.offsiteForMin;
+        }
+      }
+      return o;
+    });
+  }
 
   function readParams(values) {
     var out = {};
     UI_FIELDS.forEach(function (f) { f.set(out, values[f.id]); });
-    // constants not exposed in the UI
-    out.lunchSkipHour = 12;
+    out.sessions = sessionsToEngine(values.sessions);
+    // Grid EV connector is exclusive of portable gen/battery
+    if (out.gridEnabled) {
+      out.genEnabled = false;
+      out.batteryEnabled = false;
+    }
     return out;
   }
 
@@ -460,24 +1269,37 @@ var UI = (function () {
   function clock(min) { return min == null ? '—' : minToHHMM(Math.round(min)); }
 
   function formatMetrics(m) {
-    var totalSessions = m.sessionsRun + m.skippedSessions.length;
+    var totalSessions = m.plannedSessions != null
+      ? m.plannedSessions
+      : (m.sessionsRun + (m.skippedSessions ? m.skippedSessions.length : 0) +
+         (m.disabledSessions ? m.disabledSessions.length : 0));
+    var runVal = m.sessionsRun + ' of ' + totalSessions;
+    var disabledN = m.disabledSessions ? m.disabledSessions.length : 0;
+    if (disabledN > 0) {
+      runVal += ' (' + disabledN + ' skipped)';
+    }
     var rows = [
       { label: 'Lowest at session end', value: fmt(m.minSocPct, 0) + '%  (' + fmt(m.minSocKwh, 0) + ' kWh) @ ' + clock(m.minSocAtMin) },
       { label: 'End-of-day SoC', value: fmt(m.endSocPct, 0) + '%  (' + fmt(m.endSocKwh, 0) + ' kWh)' },
       { label: 'Trailer at end', value: fmt(m.trailerEndPct, 0) + '%  (' + fmt(m.trailerEndKwh, 0) + ' kWh)' },
-      { label: 'Sessions run', value: m.sessionsRun + ' of ' + totalSessions },
+      { label: 'Sessions run', value: runVal },
       { label: 'Generator runtime', value: fmt(m.genRuntimeHr, 1) + ' h' },
-      { label: 'Gasoline used', value: fmt(m.fuelGal, 1) + ' gal' },
+      { label: (m.genFuelType === 'propane' ? 'Propane used' : 'Gasoline used'),
+        value: fmt(m.fuelGal, 1) + ' gal' },
       { label: 'From trailer', value: fmt(m.fromTrailerKwh, 0) + ' kWh' },
       { label: 'From generator', value: fmt(m.fromGeneratorKwh, 0) + ' kWh' },
     ];
-    if (m.skippedSessions.length) {
-      rows.push({ label: 'Skipped', value: m.skippedSessions.map(function (s) {
-        return clock(s.startMin) + (s.reason === 'supercharge' ? ' (SC)' : '');
+    if (m.fromGridKwh > 0.05) {
+      rows.push({ label: 'From grid (EV connector)', value: fmt(m.fromGridKwh, 0) + ' kWh' });
+    }
+    if (m.skippedSessions && m.skippedSessions.length) {
+      rows.push({ label: 'Missed', value: m.skippedSessions.map(function (s) {
+        return clock(s.startMin);
       }).join(', ') });
     }
     if (m.sc) {
-      rows.push({ label: 'Supercharged', value: fmt(m.fromSuperchargerKwh, 0) + ' kWh' +
+      var scLabel = m.sc.name ? ('Offsite (' + m.sc.name + ')') : 'Offsite charged';
+      rows.push({ label: scLabel, value: fmt(m.fromSuperchargerKwh, 0) + ' kWh' +
         (m.sc.scDurationMin != null ? ' in ' + fmt(m.sc.scDurationMin, 0) + ' min' : ' (never finished)') });
       rows.push({ label: 'Back at track', value: m.sc.returnMin != null ? clock(m.sc.returnMin) : '— (never returned)' });
     }
@@ -494,11 +1316,12 @@ var UI = (function () {
 
   // ---- Profile helpers (pure; used by UI and tests) ----
   var BUILTIN_CAR_ID = 'car-plaid';
+  var BUILTIN_CAR_M3P_ID = 'car-m3p';
   var BUILTIN_TRACK_ID = 'track-ridge';
   var BUILTIN_SITE_ID = 'site-trailer';
   var PROFILE_META = {
     car:  { listKey: 'cars',  activeKey: 'activeCarId',  fieldIds: CAR_FIELD_IDS,
-            builtinId: BUILTIN_CAR_ID,   builtinName: 'Tesla Model S Plaid', label: 'Car' },
+            builtinId: BUILTIN_CAR_ID,   builtinName: 'Tesla Model S Plaid', label: 'EV' },
     track:{ listKey: 'tracks',activeKey: 'activeTrackId',fieldIds: TRACK_FIELD_IDS,
             builtinId: BUILTIN_TRACK_ID, builtinName: 'Ridge Motorsports Park', label: 'Track' },
     site: { listKey: 'sites', activeKey: 'activeSiteId', fieldIds: SITE_FIELD_IDS,
@@ -513,11 +1336,44 @@ var UI = (function () {
     });
     return out;
   }
+  function carFieldDefaults(over) {
+    var out = fieldDefaults(CAR_FIELD_IDS);
+    if (over) for (var k in over) out[k] = over[k];
+    return out;
+  }
+  function trackFieldDefaults() {
+    var out = fieldDefaults(TRACK_FIELD_IDS);
+    out.sessions = defaultSessionsForm();
+    return out;
+  }
+  function builtinCarProfiles() {
+    return [
+      {
+        id: BUILTIN_CAR_ID, name: 'Tesla Model S Plaid', builtin: true,
+        values: carFieldDefaults({
+          chargeCurveId: 'model-s-plaid', capacityKwh: '99.4',
+          sessionEnergyKwh: '35', sessionEndReserveKwh: '20',
+        }),
+      },
+      {
+        id: BUILTIN_CAR_M3P_ID, name: 'Tesla Model 3 Performance', builtin: true,
+        values: carFieldDefaults({
+          chargeCurveId: 'model-3-performance', capacityKwh: '75',
+          sessionEnergyKwh: '28', sessionEndReserveKwh: '15',
+        }),
+      },
+    ];
+  }
   function pickFields(values, ids) {
     var out = {};
     ids.forEach(function (id) {
       if (values[id] != null && values[id] !== '') out[id] = values[id];
     });
+    return out;
+  }
+  function pickTrackValues(values) {
+    var out = pickFields(values, TRACK_FIELD_IDS);
+    out.sessions = normalizeSessionsForm(values.sessions);
     return out;
   }
   function valuesEqual(a, b, ids) {
@@ -527,16 +1383,41 @@ var UI = (function () {
       return String(av == null ? '' : av) === String(bv == null ? '' : bv);
     });
   }
+  function sessionsEqual(a, b) {
+    var aa = normalizeSessionsForm(a), bb = normalizeSessionsForm(b);
+    if (aa.length !== bb.length) return false;
+    for (var i = 0; i < aa.length; i++) {
+      if (aa[i].start !== bb[i].start) return false;
+      if (!!aa[i].enabled !== !!bb[i].enabled) return false;
+      var aaAfter = aa[i].after == null ? null : aa[i].after;
+      var bbAfter = bb[i].after == null ? null : bb[i].after;
+      if (aaAfter !== bbAfter) return false;
+      if (aaAfter === 'offsite') {
+        if ((aa[i].offsiteStop || 'next') !== (bb[i].offsiteStop || 'next')) return false;
+        if (Number(aa[i].offsiteUntilSocPct) !== Number(bb[i].offsiteUntilSocPct)) return false;
+        if (Number(aa[i].offsiteForMin) !== Number(bb[i].offsiteForMin)) return false;
+      }
+    }
+    return true;
+  }
+  function trackValuesEqual(a, b) {
+    return valuesEqual(a, b, TRACK_FIELD_IDS) && sessionsEqual(a.sessions, b.sessions);
+  }
   function newId(prefix) {
     return prefix + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
   function builtinProfiles() {
-    var out = {};
+    var out = {
+      cars: builtinCarProfiles(),
+      activeCarId: BUILTIN_CAR_ID,
+    };
     PROFILE_KINDS.forEach(function (kind) {
+      if (kind === 'car') return;
       var m = PROFILE_META[kind];
+      var values = kind === 'track' ? trackFieldDefaults() : fieldDefaults(m.fieldIds);
       out[m.listKey] = [{
         id: m.builtinId, name: m.builtinName, builtin: true,
-        values: fieldDefaults(m.fieldIds),
+        values: values,
       }];
       out[m.activeKey] = m.builtinId;
     });
@@ -544,30 +1425,53 @@ var UI = (function () {
   }
   function normalizeProfiles(raw) {
     if (!raw || typeof raw !== 'object') return builtinProfiles();
-    function normalizeList(list, builtinId, builtinName, fieldIds) {
+    function normalizeList(list, kind, builtinId, builtinName, fieldIds) {
       var arr = Array.isArray(list) ? list.slice() : [];
       arr = arr.filter(function (p) {
         return p && typeof p === 'object' && p.id && p.name && p.values && typeof p.values === 'object';
       }).map(function (p) {
+        var values;
+        if (kind === 'track') {
+          values = Object.assign(trackFieldDefaults(), pickTrackValues(p.values));
+        } else if (kind === 'car') {
+          values = Object.assign(fieldDefaults(fieldIds), pickFields(p.values, fieldIds));
+          // migrate legacy arrival/towing off car profiles (now on track)
+          delete values.arrivalCostNoTrailerKwh;
+          delete values.towingCostKwh;
+          if (values.chargeCurveId) {
+            values.chargeCurveId = values.chargeCurveId === 'model-3-performance'
+              ? 'model-3-performance' : 'model-s-plaid';
+          }
+        } else {
+          values = Object.assign(fieldDefaults(fieldIds), pickFields(p.values, fieldIds));
+        }
+        var isBuiltin = !!p.builtin || p.id === builtinId ||
+          (kind === 'car' && p.id === BUILTIN_CAR_M3P_ID);
         return {
           id: String(p.id),
           name: String(p.name),
-          builtin: !!p.builtin || p.id === builtinId,
-          values: Object.assign(fieldDefaults(fieldIds), pickFields(p.values, fieldIds)),
+          builtin: isBuiltin,
+          values: values,
         };
       });
-      if (!arr.some(function (p) { return p.id === builtinId; })) {
-        arr.unshift({
-          id: builtinId, name: builtinName, builtin: true,
-          values: fieldDefaults(fieldIds),
-        });
+      // Only seed defaults when the list is empty (first run / migration).
+      // Do not re-insert builtins the user deliberately deleted.
+      if (!arr.length) {
+        if (kind === 'car') {
+          arr = JSON.parse(JSON.stringify(builtinCarProfiles()));
+        } else {
+          arr = [{
+            id: builtinId, name: builtinName, builtin: true,
+            values: kind === 'track' ? trackFieldDefaults() : fieldDefaults(fieldIds),
+          }];
+        }
       }
       return arr;
     }
     var out = {};
     PROFILE_KINDS.forEach(function (kind) {
       var m = PROFILE_META[kind];
-      var list = normalizeList(raw[m.listKey], m.builtinId, m.builtinName, m.fieldIds);
+      var list = normalizeList(raw[m.listKey], kind, m.builtinId, m.builtinName, m.fieldIds);
       out[m.listKey] = list;
       var active = raw[m.activeKey];
       out[m.activeKey] = list.some(function (p) { return p.id === active; }) ? active : list[0].id;
@@ -590,15 +1494,140 @@ var UI = (function () {
   }
   function fieldIdsForKind(kind) { return PROFILE_META[kind].fieldIds; }
 
+  // ---- Export / import helpers (pure) ----
+  var EXPORT_FORMAT = 'tcs-profiles';
+  var EXPORT_VERSION = 1;
+
+  function packExport(state, selectedIds) {
+    // selectedIds: { cars: [id], tracks: [id], sites: [id] }
+    var out = {
+      format: EXPORT_FORMAT,
+      version: EXPORT_VERSION,
+      exportedAt: new Date().toISOString(),
+      cars: [], tracks: [], sites: [],
+    };
+    PROFILE_KINDS.forEach(function (kind) {
+      var m = PROFILE_META[kind];
+      var want = selectedIds && selectedIds[m.listKey];
+      var list = state[m.listKey] || [];
+      out[m.listKey] = list.filter(function (p) {
+        return !want || want.indexOf(p.id) >= 0;
+      }).map(function (p) {
+        return {
+          id: p.id,
+          name: p.name,
+          values: kind === 'track'
+            ? Object.assign(trackFieldDefaults(), pickTrackValues(p.values || {}))
+            : Object.assign(fieldDefaults(m.fieldIds), pickFields(p.values || {}, m.fieldIds)),
+        };
+      });
+    });
+    return out;
+  }
+  function parseImport(raw) {
+    var data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!data || typeof data !== 'object') throw new Error('Invalid file');
+    if (data.format && data.format !== EXPORT_FORMAT) throw new Error('Unrecognized format: ' + data.format);
+    var normalized = { cars: [], tracks: [], sites: [] };
+    PROFILE_KINDS.forEach(function (kind) {
+      var m = PROFILE_META[kind];
+      var list = Array.isArray(data[m.listKey]) ? data[m.listKey] : [];
+      normalized[m.listKey] = list.filter(function (p) {
+        return p && p.name && p.values && typeof p.values === 'object';
+      }).map(function (p) {
+        return {
+          id: p.id ? String(p.id) : newId(kind),
+          name: String(p.name),
+          values: kind === 'track'
+            ? Object.assign(trackFieldDefaults(), pickTrackValues(p.values))
+            : Object.assign(fieldDefaults(m.fieldIds), pickFields(p.values, m.fieldIds)),
+        };
+      });
+    });
+    return normalized;
+  }
+  function findByName(list, name) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].name === name) return list[i];
+    }
+    return null;
+  }
+  function duplicateImportName(name) {
+    return String(name) + ' …import';
+  }
+  /** applyImport(state, items, decisions)
+   * items: [{ kind, profile }] selected from file
+   * decisions: map "kind:name" → 'replace' | 'duplicate'  (only for conflicts)
+   * returns { state, summary: { added, replaced, duplicated } }
+   */
+  function applyImport(state, items, decisions) {
+    var next = {
+      cars: state.cars.slice(),
+      tracks: state.tracks.slice(),
+      sites: state.sites.slice(),
+      activeCarId: state.activeCarId,
+      activeTrackId: state.activeTrackId,
+      activeSiteId: state.activeSiteId,
+    };
+    var summary = { added: 0, replaced: 0, duplicated: 0 };
+    items.forEach(function (item) {
+      var kind = item.kind;
+      var m = PROFILE_META[kind];
+      var list = next[m.listKey];
+      var incoming = {
+        id: newId(kind),
+        name: item.profile.name,
+        builtin: false,
+        values: item.profile.values,
+      };
+      var existing = findByName(list, incoming.name);
+      if (!existing) {
+        list.push(incoming);
+        summary.added++;
+        return;
+      }
+      var key = kind + ':' + incoming.name;
+      var decision = (decisions && decisions[key]) || 'duplicate';
+      if (decision === 'replace') {
+        incoming.id = existing.id;
+        incoming.builtin = !!existing.builtin;
+        var idx = list.indexOf(existing);
+        list[idx] = incoming;
+        summary.replaced++;
+      } else {
+        incoming.name = duplicateImportName(incoming.name);
+        // if "...import" also exists, keep appending
+        var n = 2;
+        while (findByName(list, incoming.name)) {
+          incoming.name = duplicateImportName(item.profile.name) + ' ' + n;
+          n++;
+        }
+        list.push(incoming);
+        summary.duplicated++;
+      }
+    });
+    return { state: next, summary: summary };
+  }
+
   return { UI_FIELDS: UI_FIELDS, CAR_FIELD_IDS: CAR_FIELD_IDS, TRACK_FIELD_IDS: TRACK_FIELD_IDS,
            SITE_FIELD_IDS: SITE_FIELD_IDS, PROFILE_KINDS: PROFILE_KINDS, PROFILE_META: PROFILE_META,
-           BUILTIN_CAR_ID: BUILTIN_CAR_ID, BUILTIN_TRACK_ID: BUILTIN_TRACK_ID, BUILTIN_SITE_ID: BUILTIN_SITE_ID,
+           GAP_ACTION_OPTIONS: GAP_ACTION_OPTIONS,
+           BUILTIN_CAR_ID: BUILTIN_CAR_ID, BUILTIN_CAR_M3P_ID: BUILTIN_CAR_M3P_ID,
+           BUILTIN_TRACK_ID: BUILTIN_TRACK_ID, BUILTIN_SITE_ID: BUILTIN_SITE_ID,
+           VEHICLE_OPTIONS: VEHICLE_OPTIONS,
+           EXPORT_FORMAT: EXPORT_FORMAT, EXPORT_VERSION: EXPORT_VERSION,
            readParams: readParams, formatMetrics: formatMetrics,
            hhmmToMin: hhmmToMin, minToHHMM: minToHHMM, chartScale: chartScale,
-           fieldDefaults: fieldDefaults, pickFields: pickFields, valuesEqual: valuesEqual,
+           fieldDefaults: fieldDefaults, trackFieldDefaults: trackFieldDefaults,
+           pickFields: pickFields, pickTrackValues: pickTrackValues,
+           valuesEqual: valuesEqual, sessionsEqual: sessionsEqual, trackValuesEqual: trackValuesEqual,
+           defaultSessionsForm: defaultSessionsForm, normalizeSessionsForm: normalizeSessionsForm,
+           sessionsToEngine: sessionsToEngine,
            newId: newId, builtinProfiles: builtinProfiles, normalizeProfiles: normalizeProfiles,
            findProfile: findProfile, upsertProfile: upsertProfile, removeProfile: removeProfile,
-           fieldIdsForKind: fieldIdsForKind };
+           fieldIdsForKind: fieldIdsForKind,
+           packExport: packExport, parseImport: parseImport, findByName: findByName,
+           duplicateImportName: duplicateImportName, applyImport: applyImport };
 })();
 
 (function bootstrap() {
@@ -624,12 +1653,93 @@ var UI = (function () {
 
   function applyFieldValues(values, ids) {
     (ids || Object.keys(values)).forEach(function (id) {
+      if (id === 'sessions') return;
       var f = UI.UI_FIELDS.find(function (x) { return x.id === id; });
       var el = document.getElementById(id);
       if (!f || !el || values[id] == null || values[id] === '') return;
       if (f.kind === 'check') el.checked = (values[id] === true || values[id] === 'true');
       else el.value = values[id];
     });
+  }
+  function applyProfileValues(kind, values) {
+    applyFieldValues(values, fieldIdsFor(kind));
+    if (kind === 'track') setSessionsForm(values.sessions || UI.defaultSessionsForm());
+    if (kind === 'car') syncVehicleSelectWidth();
+    if (kind === 'site') normalizeSiteSourceCheckboxes();
+  }
+
+  /** Grid EV connector XOR portable gen/battery; dim disabled sub-section fields. */
+  function syncSiteSourceUI() {
+    function setSubOn(name, on) {
+      var sub = document.querySelector('.subgrp[data-sub="' + name + '"]');
+      if (!sub) return;
+      if (on) sub.classList.remove('is-off');
+      else sub.classList.add('is-off');
+      sub.querySelectorAll('.grp-fields input, .grp-fields select').forEach(function (el) {
+        el.disabled = !on;
+      });
+    }
+    var gen = document.getElementById('genEnabled');
+    var bat = document.getElementById('batteryEnabled');
+    var grid = document.getElementById('gridEnabled');
+    if (!gen || !bat || !grid) return;
+    setSubOn('Generator', gen.checked);
+    setSubOn('Battery', bat.checked);
+    setSubOn('Grid', grid.checked);
+    // AC-DC is the gen→battery bus rectifier: only editable when both are on
+    var acdc = document.getElementById('acdcEffPct');
+    if (acdc) {
+      var both = gen.checked && bat.checked;
+      acdc.disabled = !both;
+      var fld = acdc.closest('.fld');
+      if (fld) fld.classList.toggle('is-disabled', !both);
+    }
+    // Towing only when bringing portable gen and/or battery; show 0 while disabled
+    var tow = document.getElementById('towingCostKwh');
+    if (tow) {
+      var portable = gen.checked || bat.checked;
+      if (!portable) {
+        if (tow.dataset.savedTow == null) tow.dataset.savedTow = tow.value;
+        tow.value = '0';
+      } else if (tow.dataset.savedTow != null) {
+        tow.value = tow.dataset.savedTow;
+        delete tow.dataset.savedTow;
+      }
+      tow.disabled = !portable;
+      var towFld = tow.closest('.fld');
+      if (towFld) towFld.classList.toggle('is-disabled', !portable);
+    }
+  }
+  function applySiteSourceExclusivity(changedId) {
+    var gen = document.getElementById('genEnabled');
+    var bat = document.getElementById('batteryEnabled');
+    var grid = document.getElementById('gridEnabled');
+    if (!gen || !bat || !grid) return;
+    if (changedId === 'gridEnabled' && grid.checked) {
+      gen.checked = false;
+      bat.checked = false;
+    } else if ((changedId === 'genEnabled' || changedId === 'batteryEnabled') &&
+               (gen.checked || bat.checked) && grid.checked) {
+      grid.checked = false;
+    }
+    syncSiteSourceUI();
+  }
+  function normalizeSiteSourceCheckboxes() {
+    var gen = document.getElementById('genEnabled');
+    var bat = document.getElementById('batteryEnabled');
+    var grid = document.getElementById('gridEnabled');
+    if (!gen || !bat || !grid) return;
+    // Prefer grid if both modes were somehow enabled together
+    if (grid.checked && (gen.checked || bat.checked)) {
+      gen.checked = false;
+      bat.checked = false;
+    }
+    syncSiteSourceUI();
+  }
+  function profileValuesFromForm(kind) {
+    var cur = currentValues();
+    if (kind === 'track') return UI.pickTrackValues(cur);
+    return UI.pickFields(cur, fieldIdsFor(kind));
   }
 
   function meta(kind) { return UI.PROFILE_META[kind]; }
@@ -644,12 +1754,49 @@ var UI = (function () {
     return '<div class="section-head" data-kind="' + kind + '">' +
       '<div class="grp-title">' + groupLabel + ':</div>' +
       '<select id="' + kind + 'Select" aria-label="' + aria + '"></select>' +
-      '<button type="button" id="' + kind + 'Reload" title="Reload saved values for this profile (discard edits)">Reload</button>' +
-      '<button type="button" id="' + kind + 'Save" title="Save current values into this profile">Save</button>' +
-      '<button type="button" id="' + kind + 'SaveAs" title="Save as a new named profile">Save as…</button>' +
-      '<button type="button" id="' + kind + 'Delete" title="Delete this profile">Delete</button>' +
-      '<div class="dirty" id="' + kind + 'Dirty"></div>' +
+      '<div class="menu-wrap" id="' + kind + 'Menu">' +
+        '<button type="button" class="menu-btn" id="' + kind + 'MenuBtn" ' +
+          'aria-haspopup="menu" aria-expanded="false" aria-controls="' + kind + 'MenuDrop" ' +
+          'title="Profile actions">⋯</button>' +
+        '<div class="menu-dropdown" id="' + kind + 'MenuDrop" role="menu" hidden>' +
+          '<button type="button" role="menuitem" data-action="reload" id="' + kind + 'Reload">Reload</button>' +
+          '<button type="button" role="menuitem" data-action="save">Save</button>' +
+          '<button type="button" role="menuitem" data-action="saveAs">Save as…</button>' +
+          '<button type="button" role="menuitem" data-action="rename">Rename…</button>' +
+          '<hr>' +
+          '<button type="button" role="menuitem" data-action="delete" class="menu-danger" id="' + kind + 'Delete">Delete</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="dirty-actions" id="' + kind + 'DirtyActions" hidden>' +
+        '<button type="button" class="dirty-save" id="' + kind + 'DirtySave" ' +
+          'title="Save current values into this profile">Save</button>' +
+        '<button type="button" class="dirty-save" id="' + kind + 'DirtySaveAs" ' +
+          'title="Save as a new named profile">Save as</button>' +
+        '<button type="button" class="dirty-reset" id="' + kind + 'DirtyReset" ' +
+          'title="Discard edits and reload saved values" aria-label="Reset to saved values">' +
+          '<svg viewBox="0 0 16 16" aria-hidden="true">' +
+            '<path fill="currentColor" d="M8 1.5a6.5 6.5 0 1 0 6.33 5.07.75.75 0 0 0-1.47-.3A5 5 0 1 1 8 3v1.75a.5.5 0 0 0 .8.4l2.5-1.875a.5.5 0 0 0 0-.8L8.8 1.6A.5.5 0 0 0 8 2V1.5z"/>' +
+          '</svg>' +
+        '</button>' +
+      '</div>' +
     '</div>';
+  }
+
+  function closeAllProfileMenus(except) {
+    UI.PROFILE_KINDS.forEach(function (kind) {
+      if (except && kind === except) return;
+      var drop = document.getElementById(kind + 'MenuDrop');
+      var btn = document.getElementById(kind + 'MenuBtn');
+      if (drop) drop.hidden = true;
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    });
+  }
+  function setProfileMenuOpen(kind, open) {
+    var drop = document.getElementById(kind + 'MenuDrop');
+    var btn = document.getElementById(kind + 'MenuBtn');
+    if (!drop || !btn) return;
+    drop.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
 
   function wireProfileBlock(kind) {
@@ -658,57 +1805,126 @@ var UI = (function () {
       var prof = UI.findProfile(listFor(kind), id);
       if (!prof) return;
       setActiveId(kind, id);
-      applyFieldValues(prof.values, fieldIdsFor(kind));
+      applyProfileValues(kind, prof.values);
       saveProfiles(profileState);
+      closeAllProfileMenus();
       render();
     });
-    document.getElementById(kind + 'Reload').addEventListener('click', function () {
-      var prof = UI.findProfile(listFor(kind), activeIdFor(kind));
-      if (!prof) return;
-      applyFieldValues(prof.values, fieldIdsFor(kind));
-      render();
+
+    var dirtySave = document.getElementById(kind + 'DirtySave');
+    if (dirtySave) {
+      dirtySave.addEventListener('click', function (e) {
+        e.stopPropagation();
+        profileSave(kind);
+        render();
+      });
+    }
+    var dirtySaveAs = document.getElementById(kind + 'DirtySaveAs');
+    if (dirtySaveAs) {
+      dirtySaveAs.addEventListener('click', function (e) {
+        e.stopPropagation();
+        profileSaveAs(kind);
+        render();
+      });
+    }
+    var dirtyReset = document.getElementById(kind + 'DirtyReset');
+    if (dirtyReset) {
+      dirtyReset.addEventListener('click', function (e) {
+        e.stopPropagation();
+        profileReload(kind);
+      });
+    }
+
+    var menuBtn = document.getElementById(kind + 'MenuBtn');
+    var menuDrop = document.getElementById(kind + 'MenuDrop');
+    menuBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var willOpen = menuDrop.hidden;
+      closeAllProfileMenus();
+      if (willOpen) setProfileMenuOpen(kind, true);
     });
-    document.getElementById(kind + 'Save').addEventListener('click', function () {
-      var list = listFor(kind);
-      var prof = UI.findProfile(list, activeIdFor(kind));
-      if (!prof) return;
-      prof = {
-        id: prof.id, name: prof.name, builtin: !!prof.builtin,
-        values: UI.pickFields(currentValues(), fieldIdsFor(kind)),
-      };
-      setList(kind, UI.upsertProfile(list, prof));
-      saveProfiles(profileState);
-      refreshProfileUI();
+    menuDrop.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var btn = e.target.closest('button[data-action]');
+      if (!btn || btn.disabled) return;
+      var action = btn.getAttribute('data-action');
+      closeAllProfileMenus();
+      if (action === 'reload') profileReload(kind);
+      else if (action === 'save') profileSave(kind);
+      else if (action === 'saveAs') profileSaveAs(kind);
+      else if (action === 'rename') profileRename(kind);
+      else if (action === 'delete') profileDelete(kind);
     });
-    document.getElementById(kind + 'SaveAs').addEventListener('click', function () {
-      var name = window.prompt('Name for new ' + meta(kind).label.toLowerCase() + ' profile:');
-      if (name == null) return;
-      name = String(name).trim();
-      if (!name) return;
-      var prof = {
-        id: UI.newId(kind),
-        name: name,
-        builtin: false,
-        values: UI.pickFields(currentValues(), fieldIdsFor(kind)),
-      };
-      setList(kind, UI.upsertProfile(listFor(kind), prof));
-      setActiveId(kind, prof.id);
-      saveProfiles(profileState);
-      refreshProfileUI();
-    });
-    document.getElementById(kind + 'Delete').addEventListener('click', function () {
-      var list = listFor(kind);
-      var id = activeIdFor(kind);
-      var prof = UI.findProfile(list, id);
-      if (!prof || list.length <= 1) return;
-      if (!window.confirm('Delete profile "' + prof.name + '"?')) return;
-      var next = UI.removeProfile(list, id);
-      setList(kind, next);
-      setActiveId(kind, next[0].id);
-      applyFieldValues(next[0].values, fieldIdsFor(kind));
-      saveProfiles(profileState);
-      render();
-    });
+  }
+
+  function profileReload(kind) {
+    var prof = UI.findProfile(listFor(kind), activeIdFor(kind));
+    if (!prof) return;
+    applyProfileValues(kind, prof.values);
+    render();
+  }
+  function profileSave(kind) {
+    var list = listFor(kind);
+    var prof = UI.findProfile(list, activeIdFor(kind));
+    if (!prof) return;
+    prof = {
+      id: prof.id, name: prof.name, builtin: !!prof.builtin,
+      values: profileValuesFromForm(kind),
+    };
+    setList(kind, UI.upsertProfile(list, prof));
+    saveProfiles(profileState);
+    refreshProfileUI();
+  }
+  function profileSaveAs(kind) {
+    var name = window.prompt('Name for new ' + meta(kind).label.toLowerCase() + ' profile:');
+    if (name == null) return;
+    name = String(name).trim();
+    if (!name) return;
+    var prof = {
+      id: UI.newId(kind),
+      name: name,
+      builtin: false,
+      values: profileValuesFromForm(kind),
+    };
+    setList(kind, UI.upsertProfile(listFor(kind), prof));
+    setActiveId(kind, prof.id);
+    saveProfiles(profileState);
+    refreshProfileUI();
+  }
+  function profileRename(kind) {
+    var list = listFor(kind);
+    var prof = UI.findProfile(list, activeIdFor(kind));
+    if (!prof) return;
+    var name = window.prompt('Rename ' + meta(kind).label.toLowerCase() + ' profile:', prof.name);
+    if (name == null) return;
+    name = String(name).trim();
+    if (!name || name === prof.name) return;
+    prof = {
+      id: prof.id, name: name, builtin: !!prof.builtin,
+      values: prof.values,
+    };
+    setList(kind, UI.upsertProfile(list, prof));
+    saveProfiles(profileState);
+    refreshProfileUI();
+  }
+  function profileDelete(kind) {
+    var list = listFor(kind);
+    var id = activeIdFor(kind);
+    var prof = UI.findProfile(list, id);
+    if (!prof || list.length <= 1) return;
+    if (!window.confirm('Delete profile "' + prof.name + '"?')) return;
+    var idx = -1;
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) { idx = i; break; }
+    var next = UI.removeProfile(list, id);
+    if (!next.length) return;
+    // Prefer the profile that slid into this slot; otherwise the previous one.
+    var pick = next[Math.min(Math.max(idx, 0), next.length - 1)] || next[0];
+    setList(kind, next);
+    setActiveId(kind, pick.id);
+    applyProfileValues(kind, pick.values);
+    saveProfiles(profileState);
+    refreshProfileUI(); // rebuild dropdown without deleted profile + select the new active
+    render();
   }
 
   function refreshProfileUI() {
@@ -727,14 +1943,18 @@ var UI = (function () {
     });
   }
   function updateDirty(kind) {
-    var el = document.getElementById(kind + 'Dirty');
-    if (!el) return;
+    var actions = document.getElementById(kind + 'DirtyActions');
+    if (!actions) return;
     var prof = UI.findProfile(listFor(kind), activeIdFor(kind));
-    if (!prof) { el.textContent = ''; return; }
-    var ids = fieldIdsFor(kind);
-    var cur = UI.pickFields(currentValues(), ids);
-    var dirty = !UI.valuesEqual(cur, prof.values, ids);
-    el.textContent = dirty ? 'Unsaved' : '';
+    var dirty = false;
+    if (prof) {
+      var cur = profileValuesFromForm(kind);
+      dirty = kind === 'track'
+        ? !UI.trackValuesEqual(cur, prof.values)
+        : !UI.valuesEqual(cur, prof.values, fieldIdsFor(kind));
+    }
+    actions.classList.toggle('is-dirty', dirty);
+    actions.hidden = !dirty;
     var reload = document.getElementById(kind + 'Reload');
     if (reload) reload.disabled = !dirty;
   }
@@ -743,50 +1963,730 @@ var UI = (function () {
       .replace(/"/g, '&quot;');
   }
 
+  // ---- Session list editor (part of Track) ----
+  // Sessions are primary rows. After each enabled non-last session: a gap mode dropdown
+  // (Charge onsite | Charge offsite | No charging). Onsite only when site charging is on.
+  function siteChargingAvailableFromDom() {
+    var gen = document.getElementById('genEnabled');
+    var bat = document.getElementById('batteryEnabled');
+    var grid = document.getElementById('gridEnabled');
+    if (grid && grid.checked) return true;
+    if (gen && gen.checked) return true;
+    if (bat && bat.checked) return true;
+    return false;
+  }
+  function gapActionOptions(allowOnsite) {
+    return UI.GAP_ACTION_OPTIONS.filter(function (o) {
+      return allowOnsite || o.value !== 'onsite';
+    });
+  }
+  function normalizeGapModeForUi(mode, allowOnsite) {
+    var a = String(mode == null ? '' : mode);
+    if (a === 'run' || a === '') a = 'onsite';
+    else if (a === 'nothing') a = 'none';
+    else if (a !== 'offsite' && a !== 'none' && a !== 'onsite') a = 'onsite';
+    if (a === 'onsite' && !allowOnsite) return 'none';
+    return a;
+  }
+  function gapSelectHtml(selected, allowOnsite) {
+    allowOnsite = !!allowOnsite;
+    selected = normalizeGapModeForUi(selected, allowOnsite);
+    var opts = gapActionOptions(allowOnsite);
+    return '<select class="sess-after" aria-label="After session">' +
+      opts.map(function (o) {
+        return '<option value="' + o.value + '"' + (o.value === selected ? ' selected' : '') + '>' +
+          o.label + '</option>';
+      }).join('') + '</select>';
+  }
+  function gapModeLabel(mode, allowOnsite) {
+    mode = normalizeGapModeForUi(mode, allowOnsite);
+    if (mode === 'offsite') return 'Charge offsite';
+    if (mode === 'none') return 'No charging';
+    return 'Charge onsite';
+  }
+  var OFFSITE_STOP_OPTIONS = [
+    { value: 'next', label: 'Until next session' },
+    { value: 'until', label: 'Until' },
+    { value: 'for', label: 'For' },
+  ];
+  function offsiteOptsHtml(s, visible) {
+    var stop = (s && s.offsiteStop) || 'next';
+    if (stop === 'till') stop = 'until';
+    if (stop !== 'until' && stop !== 'for') stop = 'next';
+    var soc = (s && s.offsiteUntilSocPct != null) ? s.offsiteUntilSocPct : 80;
+    var mins = (s && s.offsiteForMin != null) ? s.offsiteForMin : 30;
+    var stopOpts = OFFSITE_STOP_OPTIONS.map(function (o) {
+      return '<option value="' + o.value + '"' + (o.value === stop ? ' selected' : '') + '>' +
+        o.label + '</option>';
+    }).join('');
+    return '<span class="sess-offsite-opts"' + (visible ? '' : ' hidden') + '>' +
+      '<select class="sess-offsite-stop" aria-label="Offsite charge stop">' + stopOpts + '</select>' +
+      '<span class="sess-offsite-until"' + (stop === 'until' ? '' : ' hidden') + '>' +
+        '<input type="number" class="sess-offsite-soc" min="1" max="100" step="1" value="' + soc + '" aria-label="Charge until SoC">' +
+        '<span class="unit">%</span>' +
+      '</span>' +
+      '<span class="sess-offsite-for"' + (stop === 'for' ? '' : ' hidden') + '>' +
+        '<input type="number" class="sess-offsite-min" min="1" step="1" value="' + mins + '" aria-label="Charge for minutes">' +
+        '<span class="unit">min</span>' +
+      '</span>' +
+    '</span>';
+  }
+  function syncOffsiteOptsVisibility(block) {
+    if (!block) return;
+    var after = block.querySelector('.sess-after');
+    var opts = block.querySelector('.sess-offsite-opts');
+    if (!opts) return;
+    var isOff = after && after.value === 'offsite';
+    opts.hidden = !isOff;
+    if (!isOff) return;
+    var stop = block.querySelector('.sess-offsite-stop');
+    var mode = stop ? stop.value : 'next';
+    var untilEl = opts.querySelector('.sess-offsite-until');
+    var forEl = opts.querySelector('.sess-offsite-for');
+    if (untilEl) untilEl.hidden = mode !== 'until';
+    if (forEl) forEl.hidden = mode !== 'for';
+  }
+  /** Dropdown alone when editable; plain label for continuation rows. */
+  function chargeActHtml(mode, editable, allowOnsite, sessionRow) {
+    if (allowOnsite == null) allowOnsite = siteChargingAvailableFromDom();
+    mode = normalizeGapModeForUi(mode, allowOnsite);
+    if (!editable) return gapModeLabel(mode, allowOnsite);
+    var html = gapSelectHtml(mode, allowOnsite);
+    // Offsite stop controls sit next to the mode dropdown (shown when offsite)
+    html += offsiteOptsHtml(
+      sessionRow || { offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30 },
+      mode === 'offsite'
+    );
+    return html;
+  }
+  /** Keep after-session dropdown options in sync with site charging availability. */
+  function syncSessionGapOptions() {
+    var allow = siteChargingAvailableFromDom();
+    document.querySelectorAll('select.sess-after').forEach(function (sel) {
+      var cur = normalizeGapModeForUi(sel.value, allow);
+      var opts = gapActionOptions(allow);
+      sel.innerHTML = opts.map(function (o) {
+        return '<option value="' + o.value + '"' + (o.value === cur ? ' selected' : '') + '>' +
+          o.label + '</option>';
+      }).join('');
+      sel.value = cur;
+    });
+  }
+  function updateSessionsTitle(count) {
+    var el = document.getElementById('sessionsTitle');
+    if (!el) return;
+    var n = count == null ? 0 : count;
+    el.textContent = n + ' Track Session' + (n === 1 ? '' : 's');
+  }
+  function pctAt(timeline, minute, key) {
+    if (!timeline || !timeline.length || minute == null || !isFinite(minute)) return null;
+    var i = Math.round(minute) - timeline[0].min;
+    if (i < 0) i = 0;
+    if (i > timeline.length - 1) i = timeline.length - 1;
+    return Math.round(timeline[i][key]);
+  }
+  function carPctAt(timeline, minute) { return pctAt(timeline, minute, 'carPct'); }
+  function trlPctAt(timeline, minute) { return pctAt(timeline, minute, 'trlPct'); }
+  function fmtSocPct(pct) {
+    return pct == null ? '—' : pct + '%';
+  }
+  function fmtMin(n) {
+    if (n == null || !isFinite(n) || n < 0) return '—';
+    return Math.round(n) + ' min';
+  }
+  function setCell(el, text, cls) {
+    if (!el) return;
+    el.textContent = text;
+    if (cls) el.className = cls;
+  }
+  function socBelowReserve(pct, p) {
+    if (pct == null || !p || !(p.capacityKwh > 0) || !(p.sessionEndReserveKwh > 0)) return false;
+    return (pct / 100 * p.capacityKwh) < p.sessionEndReserveKwh - 1e-9;
+  }
+  function trlBelowFloor(pct, p) {
+    if (pct == null || !p || p.minTrailerSocPct == null) return false;
+    return pct < p.minTrailerSocPct - 1e-9;
+  }
+  /** SoC range "start% → end%"; kind 'car' | 'trailer' for low threshold.
+   *  Colors: green if charging (end > start), yellow if discharging, muted if flat.
+   *  Always paints into an inner .soc-range span so <td> stays display:table-cell. */
+  function setSocCell(el, timeline, startMin, endMin, p, baseCls, kind) {
+    if (!el) return;
+    kind = kind || 'car';
+    var key = kind === 'trailer' ? 'trlPct' : 'carPct';
+    var a = pctAt(timeline, startMin, key);
+    var b = pctAt(timeline, endMin, key);
+    var low = kind === 'trailer'
+      ? (trlBelowFloor(a, p) || trlBelowFloor(b, p))
+      : (socBelowReserve(a, p) || socBelowReserve(b, p));
+    var trend = 'soc-flat';
+    if (a != null && b != null) {
+      if (b > a) trend = 'soc-charge';
+      else if (b < a) trend = 'soc-discharge';
+    }
+    var range = el;
+    if (el.tagName === 'TD') {
+      // Keep table-cell layout; put the range markup on a child span.
+      el.className = baseCls || 'sess-num';
+      range = el.querySelector(':scope > .soc-range');
+      if (!range) {
+        range = document.createElement('span');
+        el.textContent = '';
+        el.appendChild(range);
+      }
+    }
+    range.className = 'soc-range ' + trend + (low ? ' sess-bad' : '');
+    range.innerHTML =
+      '<span class="soc-a">' + fmtSocPct(a) + '</span>' +
+      '<span class="soc-arrow">→</span>' +
+      '<span class="soc-b">' + fmtSocPct(b) + '</span>';
+  }
+  function setSocCellText(el, text, baseCls, low) {
+    if (!el) return;
+    if (el.tagName === 'TD') {
+      el.className = baseCls || 'sess-num';
+      el.textContent = text;
+      if (low) el.classList.add('sess-bad');
+      return;
+    }
+    el.className = (baseCls || 'sess-num') + (low ? ' sess-bad' : '');
+    el.textContent = text;
+  }
+  function sessionBlockHtml(s, idx, isLast, continueAfter) {
+    // Primary session row first; post-session charge when not last.
+    // Enabled rows own an editable after; skipped rows continue prior mode (no dropdown).
+    var enabled = s.enabled !== false;
+    var allowOnsite = siteChargingAvailableFromDom();
+    var mode = enabled
+      ? normalizeGapModeForUi(s.after, allowOnsite)
+      : normalizeGapModeForUi(continueAfter, allowOnsite);
+    var chargeBlock = isLast ? '' : (
+      '<tr class="sess-drive-out sess-drive" hidden>' +
+        '<td class="do-start">—</td>' +
+        '<td class="sess-act do-act">Drive out</td>' +
+        '<td class="sess-mut do-dur">—</td>' +
+        '<td class="sess-num do-soc">—</td>' +
+        '<td class="sess-num do-trl">—</td><td></td>' +
+      '</tr>' +
+      '<tr class="sess-charge-row">' +
+        '<td class="ch-start">—</td>' +
+        '<td class="sess-act ch-act">' + chargeActHtml(mode, enabled, allowOnsite, s) + '</td>' +
+        '<td class="sess-mut ch-dur">—</td>' +
+        '<td class="sess-num ch-soc">—</td>' +
+        '<td class="sess-num ch-trl">—</td><td></td>' +
+      '</tr>' +
+      '<tr class="sess-drive-back sess-drive" hidden>' +
+        '<td class="db-start">—</td>' +
+        '<td class="sess-act">Drive back</td>' +
+        '<td class="sess-mut db-dur">—</td>' +
+        '<td class="sess-num db-soc">—</td>' +
+        '<td class="sess-num db-trl">—</td><td></td>' +
+      '</tr>' +
+      '<tr class="sess-wait-row" hidden>' +
+        '<td class="wt-start">—</td>' +
+        '<td class="sess-act wt-act">Wait</td>' +
+        '<td class="sess-mut wt-dur">—</td>' +
+        '<td class="sess-num wt-soc">—</td>' +
+        '<td class="sess-num wt-trl">—</td><td></td>' +
+      '</tr>'
+    );
+    var actLabel = enabled ? 'Track Session' : 'Skipped Session';
+    return '<tbody class="sess-block" data-idx="' + idx + '">' +
+      '<tr class="sess-edit-row' + (enabled ? '' : ' sess-disabled') + '">' +
+        '<td><input type="time" class="sess-start" value="' + (s.start || '09:00') + '" aria-label="Track session start"></td>' +
+        '<td class="sess-act">' +
+          '<label class="sess-enable-label">' +
+            '<input type="checkbox" class="sess-enabled" ' + (enabled ? 'checked ' : '') +
+              'aria-label="Enable track session">' +
+            '<span class="sess-act-label">' + actLabel + '</span>' +
+          '</label>' +
+        '</td>' +
+        '<td class="sess-mut"><span class="sess-dur">—</span></td>' +
+        '<td><span class="sess-soc-post sess-num">—</span></td>' +
+        '<td><span class="sess-trl-post sess-num">—</span></td>' +
+        '<td><button type="button" class="icon-btn sess-remove" title="Remove session" aria-label="Remove session">' +
+          '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5.5 2a.5.5 0 0 0-.5.5V3H2.5a.5.5 0 0 0 0 1H3v8.5A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V4h.5a.5.5 0 0 0 0-1H11v-.5a.5.5 0 0 0-.5-.5h-5zM6 3h4v.5H6V3zm-2 1h8v8.5a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5V4zm2.5 1.5a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 1 0v-5a.5.5 0 0 0-.5-.5zm3 0a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 1 0v-5a.5.5 0 0 0-.5-.5z"/></svg>' +
+        '</button></td>' +
+      '</tr>' +
+      chargeBlock +
+    '</tbody>';
+  }
+  function showRow(tr, on) {
+    if (!tr) return;
+    if (on) tr.removeAttribute('hidden'); else tr.setAttribute('hidden', '');
+  }
+  function updateSessionsComputed(p, result) {
+    var table = document.getElementById('sessionTable');
+    if (!table) return;
+    var sched = Sim.buildSchedule(p);
+    var tl = result && result.timeline;
+    var missed = {};
+    if (result && result.metrics && result.metrics.skippedSessions) {
+      result.metrics.skippedSessions.forEach(function (s) { missed[s.index] = true; });
+    }
+    // Offsite trips are keyed to the *destination* session (gap before it).
+    var tripsBySess = {};
+    if (result && result.metrics && result.metrics.trips) {
+      result.metrics.trips.forEach(function (t) {
+        if (t.sessionIndex != null) tripsBySess[t.sessionIndex] = t;
+      });
+    }
+    var scName = (p.scName && String(p.scName).trim()) || 'offsite';
+    var blocks = table.querySelectorAll('tbody.sess-block');
+    blocks.forEach(function (block, idx) {
+      var s = sched[idx];
+      if (!s) return;
+      var editRow = block.querySelector('tr.sess-edit-row');
+      if (!editRow) return;
+      var enabled = s.enabled !== false;
+      var actLabel = editRow.querySelector('.sess-act-label');
+      if (actLabel) actLabel.textContent = enabled ? 'Track Session' : 'Skipped Session';
+      editRow.classList.toggle('sess-disabled', !enabled);
+
+      // Primary session row
+      var dur = Math.max(0, s.endMin - s.startMin);
+      var isMissed = enabled && !!missed[s.index];
+      var durEl = editRow.querySelector('.sess-dur');
+      var socEl = editRow.querySelector('.sess-soc-post');
+      var trlEl = editRow.querySelector('.sess-trl-post');
+      var sA = s.startMin > 0 ? s.startMin - 1 : s.startMin;
+      var sB = s.endMin > s.startMin ? s.endMin - 1 : s.startMin;
+      if (!enabled) {
+        // Intentionally skipped: no For / SoC values
+        if (durEl) durEl.textContent = '';
+        setSocCellText(socEl, '', 'sess-soc-post sess-num', false);
+        setSocCellText(trlEl, '', 'sess-trl-post sess-num', false);
+        editRow.classList.remove('sess-missed');
+      } else {
+        if (durEl) durEl.textContent = fmtMin(dur);
+        if (socEl) {
+          if (isMissed) {
+            setSocCellText(socEl, 'missed', 'sess-soc-post', true);
+            editRow.classList.add('sess-missed');
+          } else {
+            setSocCell(socEl, tl, sA, sB, p, 'sess-soc-post sess-num', 'car');
+            editRow.classList.remove('sess-missed');
+          }
+        }
+        if (trlEl) {
+          if (isMissed) {
+            setSocCellText(trlEl, '—', 'sess-trl-post sess-num', false);
+          } else {
+            setSocCell(trlEl, tl, sA, sB, p, 'sess-trl-post sess-num', 'trailer');
+          }
+        }
+      }
+
+      // Post-session charge (gap after this session → next). None for last session.
+      // Skipped rows continue the prior charge mode (no own after choice).
+      var driveOut = block.querySelector('tr.sess-drive-out');
+      var chargeRow = block.querySelector('tr.sess-charge-row');
+      var driveBack = block.querySelector('tr.sess-drive-back');
+      var waitRow = block.querySelector('tr.sess-wait-row');
+      var isLast = idx >= sched.length - 1;
+      if (!chargeRow || isLast) return;
+
+      var next = sched[idx + 1];
+      var allowOnsite = Sim.siteCanCharge(p);
+      var rawMode = enabled ? s.after : s.continueAfter;
+      var chargeMode = Sim.effectiveGapMode(rawMode, p);
+      var isOffsite = chargeMode === 'offsite';
+      var isNone = chargeMode === 'none';
+      // Trip targets the next *enabled* destination session
+      var tripDest = null;
+      for (var ti = idx + 1; ti < sched.length; ti++) {
+        if (sched[ti].enabled) { tripDest = sched[ti]; break; }
+      }
+      var trip = tripDest ? tripsBySess[tripDest.index] : null;
+
+      // Full offsite narrative only on the enabled session that chose offsite.
+      // Skipped rows just continue the gap with a simple charge line (may split around them).
+      if (isOffsite && enabled && trip && trip.departMin != null) {
+        var driveOutEnd = trip.scStartMin != null ? trip.scStartMin : (trip.departMin + (p.driveTimeMin || 0));
+        showRow(driveOut, true);
+        setCell(driveOut.querySelector('.do-start'), UI.minToHHMM(trip.departMin));
+        setCell(driveOut.querySelector('.do-act'), 'Drive to ' + scName);
+        setCell(driveOut.querySelector('.do-dur'), fmtMin(Math.max(0, driveOutEnd - trip.departMin)));
+        var doA = trip.departMin > 0 ? trip.departMin - 1 : trip.departMin;
+        var doB = driveOutEnd > 0 ? driveOutEnd - 1 : trip.departMin;
+        setSocCell(driveOut.querySelector('.do-soc'), tl, doA, doB, p, 'sess-num do-soc', 'car');
+        setSocCell(driveOut.querySelector('.do-trl'), tl, doA, doB, p, 'sess-num do-trl', 'trailer');
+
+        showRow(chargeRow, true);
+        chargeRow.classList.add('sess-sc');
+        var scEnd = trip.scEndMin != null ? trip.scEndMin
+          : (trip.returnMin != null ? trip.returnMin - (p.driveTimeMin || 0) : null);
+        var chStart = trip.scStartMin != null ? trip.scStartMin : trip.departMin;
+        setCell(chargeRow.querySelector('.ch-start'), UI.minToHHMM(chStart));
+        setCell(chargeRow.querySelector('.ch-dur'),
+          scEnd != null && trip.scStartMin != null ? fmtMin(Math.max(0, scEnd - trip.scStartMin)) : '…');
+        if (trip.scStartMin != null && scEnd != null) {
+          var chA = trip.scStartMin > 0 ? trip.scStartMin - 1 : trip.scStartMin;
+          var chB = scEnd - 1;
+          setSocCell(chargeRow.querySelector('.ch-soc'), tl, chA, chB, p, 'sess-num ch-soc', 'car');
+          setSocCell(chargeRow.querySelector('.ch-trl'), tl, chA, chB, p, 'sess-num ch-trl', 'trailer');
+        } else {
+          setSocCell(chargeRow.querySelector('.ch-soc'), tl, null, null, p, 'sess-num ch-soc', 'car');
+          setSocCell(chargeRow.querySelector('.ch-trl'), tl, null, null, p, 'sess-num ch-trl', 'trailer');
+        }
+
+        if (trip.scEndMin != null) {
+          showRow(driveBack, true);
+          var backDur = trip.returnMin != null
+            ? Math.max(0, trip.returnMin - trip.scEndMin) : (p.driveTimeMin || 0);
+          setCell(driveBack.querySelector('.db-start'), UI.minToHHMM(trip.scEndMin));
+          setCell(driveBack.querySelector('.db-dur'),
+            trip.returnMin != null ? fmtMin(backDur) : fmtMin(p.driveTimeMin) + '…');
+          if (trip.returnMin != null) {
+            var dbA = trip.scEndMin > 0 ? trip.scEndMin - 1 : trip.scEndMin;
+            var dbB = trip.returnMin - 1;
+            setSocCell(driveBack.querySelector('.db-soc'), tl, dbA, dbB, p, 'sess-num db-soc', 'car');
+            setSocCell(driveBack.querySelector('.db-trl'), tl, dbA, dbB, p, 'sess-num db-trl', 'trailer');
+          } else {
+            setSocCell(driveBack.querySelector('.db-soc'), tl, null, null, p, 'sess-num db-soc', 'car');
+            setSocCell(driveBack.querySelector('.db-trl'), tl, null, null, p, 'sess-num db-trl', 'trailer');
+          }
+        } else {
+          showRow(driveBack, false);
+        }
+
+        // Wait after return until the *next table row* (may be skipped)
+        if (trip.returnMin != null && next && trip.returnMin < next.startMin) {
+          showRow(waitRow, true);
+          setCell(waitRow.querySelector('.wt-start'), UI.minToHHMM(trip.returnMin));
+          setCell(waitRow.querySelector('.wt-act'),
+            allowOnsite ? 'Charge onsite' : 'Wait');
+          setCell(waitRow.querySelector('.wt-dur'), fmtMin(next.startMin - trip.returnMin));
+          var wtA = trip.returnMin > 0 ? trip.returnMin - 1 : trip.returnMin;
+          var wtB = next.startMin > 0 ? next.startMin - 1 : next.startMin;
+          setSocCell(waitRow.querySelector('.wt-soc'), tl, wtA, wtB, p, 'sess-num wt-soc', 'car');
+          setSocCell(waitRow.querySelector('.wt-trl'), tl, wtA, wtB, p, 'sess-num wt-trl', 'trailer');
+        } else {
+          showRow(waitRow, false);
+        }
+      } else {
+        // Onsite / none / offsite-continuation until next table row
+        showRow(driveOut, false);
+        showRow(driveBack, false);
+        showRow(waitRow, false);
+        showRow(chargeRow, true);
+        if (isOffsite) chargeRow.classList.add('sess-sc');
+        else chargeRow.classList.remove('sess-sc');
+        var chAct = chargeRow.querySelector('.ch-act');
+        if (chAct && !chAct.querySelector('select')) {
+          chAct.textContent = gapModeLabel(chargeMode, allowOnsite);
+        }
+        var gapStart = s.endMin;
+        var gapEnd = next ? next.startMin : s.endMin;
+        var gapMin = Math.max(0, gapEnd - gapStart);
+        setCell(chargeRow.querySelector('.ch-start'), UI.minToHHMM(gapStart));
+        setCell(chargeRow.querySelector('.ch-dur'), fmtMin(gapMin));
+        var onA = gapStart > 0 ? gapStart - 1 : gapStart;
+        var onB = gapEnd > 0 ? gapEnd - 1 : gapStart;
+        setSocCell(chargeRow.querySelector('.ch-soc'), tl, onA, onB, p, 'sess-num ch-soc', 'car');
+        setSocCell(chargeRow.querySelector('.ch-trl'), tl, onA, onB, p, 'sess-num ch-trl', 'trailer');
+      }
+    });
+  }
+  function sessionTable() {
+    return document.getElementById('sessionTable');
+  }
+  function flashSessionBlock(block) {
+    if (!block) return;
+    block.classList.remove('sess-flash');
+    // Force reflow so re-adding the class restarts the animation.
+    void block.offsetWidth;
+    block.classList.add('sess-flash');
+    setTimeout(function () { block.classList.remove('sess-flash'); }, 2000);
+  }
+  function setSessionsForm(list, opts) {
+    var table = sessionTable();
+    if (!table) return;
+    opts = opts || {};
+    var rows = UI.normalizeSessionsForm(list); // sorts by start time; after sticks with each enabled session
+    updateSessionsTitle(rows.length);
+    table.querySelectorAll('tbody.sess-block').forEach(function (b) { b.remove(); });
+    var lastEnabledAfter = null;
+    var html = rows.map(function (s, i) {
+      var cont = lastEnabledAfter;
+      if (s.enabled !== false) lastEnabledAfter = s.after != null ? s.after : null;
+      return sessionBlockHtml(s, i, i === rows.length - 1, cont);
+    }).join('');
+    table.insertAdjacentHTML('beforeend', html);
+    table.querySelectorAll('.sess-after').forEach(function (el) {
+      el.addEventListener('change', function () {
+        var block = el.closest('tbody.sess-block');
+        syncOffsiteOptsVisibility(block);
+        // If switched to offsite, ensure defaults exist in extras
+        if (el.value === 'offsite' && block) {
+          var stop = block.querySelector('.sess-offsite-stop');
+          if (stop && !stop.value) stop.value = 'next';
+        }
+        render();
+      });
+    });
+    table.querySelectorAll('.sess-offsite-stop').forEach(function (el) {
+      el.addEventListener('change', function () {
+        syncOffsiteOptsVisibility(el.closest('tbody.sess-block'));
+        render();
+      });
+    });
+    table.querySelectorAll('.sess-offsite-soc, .sess-offsite-min').forEach(function (el) {
+      el.addEventListener('input', render);
+      el.addEventListener('change', render);
+    });
+    table.querySelectorAll('tbody.sess-block').forEach(function (block) {
+      syncOffsiteOptsVisibility(block);
+    });
+    table.querySelectorAll('.sess-enabled').forEach(function (el) {
+      el.addEventListener('change', function () {
+        // Rebuild so after-charge controls appear/disappear for enable toggles
+        setSessionsForm(readSessionsFormRaw());
+        render();
+      });
+    });
+    table.querySelectorAll('.sess-start').forEach(function (el) {
+      // Live sim updates while editing; re-sort only when the field is committed
+      // (blur or Enter) so typing a new time doesn't jump the row mid-edit.
+      el.addEventListener('input', render);
+      el.addEventListener('change', render);
+      function commitSort() {
+        var block = el.closest('tbody.sess-block');
+        var t = sessionTable();
+        var orderBefore = [];
+        if (t) {
+          t.querySelectorAll('tbody.sess-block').forEach(function (b) {
+            var st = b.querySelector('.sess-start');
+            orderBefore.push(st ? st.value : '');
+          });
+        }
+        var startVal = el.value || '09:00';
+        var afterVal = null;
+        if (block) {
+          var sel = block.querySelector('.sess-after');
+          if (sel) afterVal = sel.value || 'onsite';
+        }
+        var raw = readSessionsFormRaw();
+        var sorted = UI.normalizeSessionsForm(raw);
+        var orderAfter = sorted.map(function (r) { return r.start; });
+        var moved = orderBefore.join('\0') !== orderAfter.join('\0');
+        setSessionsForm(raw, moved ? { highlightStart: startVal, highlightAfter: afterVal } : null);
+        render();
+      }
+      el.addEventListener('blur', commitSort);
+      el.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          el.blur(); // blur runs commitSort
+        }
+      });
+    });
+    table.querySelectorAll('.sess-remove').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var block = btn.closest('tbody.sess-block');
+        var t = sessionTable();
+        if (!block || !t) return;
+        var blocks = t.querySelectorAll('tbody.sess-block');
+        if (blocks.length <= 1) return;
+        // Charge-after lives on each session, so deleting one leaves neighbors' after intact.
+        // Rebuild via normalize so the new last session drops its after selector.
+        block.remove();
+        setSessionsForm(readSessionsFormRaw());
+        render();
+      });
+    });
+    if (opts.highlightStart) {
+      var match = null;
+      table.querySelectorAll('tbody.sess-block').forEach(function (b) {
+        var st = b.querySelector('.sess-start');
+        var af = b.querySelector('.sess-after');
+        if (!st) return;
+        if (st.value === opts.highlightStart &&
+            (opts.highlightAfter == null || (af && af.value === opts.highlightAfter) ||
+             (opts.highlightAfter == null && !af))) {
+          match = b;
+        }
+      });
+      if (!match) {
+        table.querySelectorAll('tbody.sess-block').forEach(function (b) {
+          var st = b.querySelector('.sess-start');
+          if (st && st.value === opts.highlightStart) match = b;
+        });
+      }
+      if (match) {
+        flashSessionBlock(match);
+        try { match.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* ignore */ }
+      }
+    }
+  }
+  function readSessionsFormRaw() {
+    var table = sessionTable();
+    if (!table) return UI.defaultSessionsForm();
+    var rows = [];
+    table.querySelectorAll('tbody.sess-block').forEach(function (block) {
+      var start = block.querySelector('.sess-start');
+      if (!start) return;
+      var en = block.querySelector('.sess-enabled');
+      var row = {
+        start: start.value || '09:00',
+        enabled: !en || en.checked,
+      };
+      var after = block.querySelector('.sess-after');
+      if (after && row.enabled) {
+        row.after = after.value || 'onsite';
+        if (row.after === 'offsite') {
+          var stop = block.querySelector('.sess-offsite-stop');
+          var soc = block.querySelector('.sess-offsite-soc');
+          var mins = block.querySelector('.sess-offsite-min');
+          row.offsiteStop = stop ? stop.value : 'next';
+          row.offsiteUntilSocPct = soc ? parseFloat(soc.value) : 80;
+          row.offsiteForMin = mins ? parseFloat(mins.value) : 30;
+        }
+      }
+      rows.push(row);
+    });
+    return rows.length ? rows : UI.defaultSessionsForm();
+  }
+  function readSessionsForm() {
+    return UI.normalizeSessionsForm(readSessionsFormRaw());
+  }
+
   function buildInputs() {
     var host = document.getElementById('inputs');
     var groups = {};
     UI.UI_FIELDS.forEach(function (f) { (groups[f.g] = groups[f.g] || []).push(f); });
 
-    // Profiled sections: fields left, profile controls right.
     var PROFILED = [
-      { group: 'Car', kind: 'car' },
-      { group: 'Track', kind: 'track' },
+      { group: 'EV', kind: 'car' },
       { group: 'Site Charging', kind: 'site' },
+      { group: 'Track', kind: 'track' },
     ];
-    // Day-plan only (no profile).
-    var DAY_GROUPS = ['Day plan', 'Sessions'];
 
+    function unitSuffix(f) {
+      return f.unit ? '<span class="unit">' + f.unit + '</span>' : '';
+    }
     function fieldHtml(f) {
       if (f.kind === 'check') {
         return '<div class="fld chk"><label for="' + f.id + '">' +
           '<input id="' + f.id + '" type="checkbox"' + (f.default ? ' checked' : '') + '> ' + f.label + '</label></div>';
       }
+      if (f.kind === 'select') {
+        var opts = (f.options || []).map(function (o) {
+          return '<option value="' + o.value + '"' + (o.value === f.default ? ' selected' : '') + '>' +
+            o.label + '</option>';
+        }).join('');
+        return '<div class="fld"><label for="' + f.id + '">' + f.label + '</label>' +
+          '<div class="fld-control"><select id="' + f.id + '">' + opts + '</select>' +
+          unitSuffix(f) + '</div></div>';
+      }
+      if (f.kind === 'text') {
+        return '<div class="fld"><label for="' + f.id + '">' + f.label + '</label>' +
+          '<div class="fld-control">' +
+          '<input id="' + f.id + '" type="text" value="' + String(f.default).replace(/"/g, '&quot;') + '">' +
+          unitSuffix(f) + '</div></div>';
+      }
       var type = f.kind === 'time' ? 'time' : 'number';
       var step = f.step != null ? ' step="' + f.step + '"' : '';
       var mn = f.min != null ? ' min="' + f.min + '"' : '';
       var mx = f.max != null ? ' max="' + f.max + '"' : '';
-      return '<div class="fld"><label for="' + f.id + '">' + f.label +
-        (f.unit ? ' (' + f.unit + ')' : '') + '</label>' +
-        '<input id="' + f.id + '" type="' + type + '" value="' + f.default + '"' + step + mn + mx + '></div>';
+      // Size by content: short %/min → sm; decimals or values ≥100 → lg
+      var wclass = '';
+      if (type === 'number') {
+        var defNum = Number(f.default);
+        var needsWide = (f.step != null && f.step < 1) ||
+          (isFinite(defNum) && Math.abs(defNum) >= 100);
+        if (f.unit === '%' || f.unit === 'min') wclass = 'w-sm';
+        else if (needsWide) wclass = 'w-lg';
+      }
+      return '<div class="fld"><label for="' + f.id + '">' + f.label + '</label>' +
+        '<div class="fld-control">' +
+        '<input id="' + f.id + '" type="' + type + '"' +
+        (wclass ? ' class="' + wclass + '"' : '') +
+        ' value="' + f.default + '"' + step + mn + mx + '>' +
+        unitSuffix(f) + '</div></div>';
     }
-    function fieldsHtml(g) {
-      return '<div class="grp-fields">' + (groups[g] || []).map(fieldHtml).join('') + '</div>';
+    function fieldsHtml(fields) {
+      return '<div class="grp-fields">' + fields.map(fieldHtml).join('') + '</div>';
+    }
+    function groupFieldsHtml(g) {
+      var list = groups[g] || [];
+      var main = list.filter(function (f) { return !f.sub; });
+      var subs = {};
+      list.forEach(function (f) {
+        if (!f.sub) return;
+        (subs[f.sub] = subs[f.sub] || []).push(f);
+      });
+      // Skip empty main row so the first sub-section sits flush under the header
+      // (avoids a stray separator above Generator on Site Charging).
+      var html = main.length ? fieldsHtml(main) : '';
+      // EV: fields on the left, charge curve as a full-height right column
+      if (g === 'EV') {
+        return '<div class="car-body">' + html +
+          '<div class="curve-col">' +
+            '<canvas id="chargeCurveChart" width="260" height="120" aria-label="Charge power curve"></canvas>' +
+            '<div class="curve-caption">DC charge acceptance · kW vs SoC %</div>' +
+          '</div></div>';
+      }
+      if (g === 'Track') {
+        html += '<div class="subgrp">' +
+          '<div class="subgrp-head">' +
+            '<div class="subgrp-title" id="sessionsTitle">Track Sessions</div>' +
+            '<button type="button" id="addSession" class="icon-btn" title="Add track session" aria-label="Add track session">' +
+              '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/></svg>' +
+            '</button>' +
+          '</div>' +
+          '<div class="sess-table-wrap"><table class="sess-table" id="sessionTable">' +
+          '<colgroup><col class="c-start"><col class="c-act"><col class="c-for">' +
+          '<col class="c-soc"><col class="c-trl"><col class="c-actn"></colgroup>' +
+          '<thead><tr><th>Start</th><th>Activity</th><th>For</th><th>Car SoC</th><th>Trailer SoC</th><th></th></tr></thead>' +
+          '</table></div></div>';
+      }
+      Object.keys(subs).forEach(function (name) {
+        var fields = subs[name];
+        var enable = null;
+        var body = [];
+        fields.forEach(function (f) {
+          if (f.subEnable) enable = f; else body.push(f);
+        });
+        var titleHtml;
+        if (enable) {
+          titleHtml = '<label class="subgrp-enable" for="' + enable.id + '">' +
+            '<input id="' + enable.id + '" type="checkbox"' +
+            (enable.default ? ' checked' : '') + '> ' + enable.label + '</label>';
+        } else {
+          titleHtml = '<div class="subgrp-title">' + name + '</div>';
+        }
+        html += '<div class="subgrp" data-sub="' + name + '">' +
+          '<div class="subgrp-head">' + titleHtml + '</div>' +
+          fieldsHtml(body) + '</div>';
+      });
+      return html;
     }
 
     var html = PROFILED.map(function (s) {
-      return '<div class="section-row">' +
+      return '<div class="section-row" data-section="' + s.kind + '">' +
         sectionHeadHtml(s.kind, s.group) +
-        fieldsHtml(s.group) +
+        groupFieldsHtml(s.group) +
       '</div>';
     }).join('');
-    html += '<div class="day-row">' + DAY_GROUPS.map(function (g) {
-      return '<div class="grp"><div class="grp-title">' + g + '</div>' + fieldsHtml(g) + '</div>';
-    }).join('') + '</div>';
-    html += '<button id="reset" type="button">Reset day plan</button>';
     host.innerHTML = html;
 
     UI.PROFILE_KINDS.forEach(wireProfileBlock);
+    document.addEventListener('click', function () { closeAllProfileMenus(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeAllProfileMenus();
+    });
+
+    document.getElementById('addSession').addEventListener('click', function () {
+      var cur = readSessionsForm();
+      var last = cur.length ? cur[cur.length - 1] : { start: '09:00' };
+      var nextMin = UI.hhmmToMin(last.start) + 60;
+      if (nextMin >= 24 * 60) nextMin = UI.hhmmToMin(last.start);
+      // after sticks with this new session for the gap after it (if not last once sorted).
+      cur.push({ start: UI.minToHHMM(nextMin), enabled: true, after: 'onsite' });
+      setSessionsForm(cur);
+      render();
+    });
 
     // Overlay any saved values from a previous session (defaults stay for fields not stored).
     var saved = loadValues();
@@ -796,31 +2696,39 @@ var UI = (function () {
       if (f.kind === 'check') el.checked = (saved[f.id] === true || saved[f.id] === 'true');
       else el.value = saved[f.id];
     });
-    // If no prior form state, seed from active profiles.
+    var initialSessions = saved.sessions || null;
     if (!saved || !Object.keys(saved).length) {
       UI.PROFILE_KINDS.forEach(function (kind) {
         var prof = UI.findProfile(listFor(kind), activeIdFor(kind));
         if (prof) applyFieldValues(prof.values, fieldIdsFor(kind));
       });
+      var trackProf = UI.findProfile(listFor('track'), activeIdFor('track'));
+      initialSessions = trackProf && trackProf.values.sessions;
     }
+    setSessionsForm(initialSessions || UI.defaultSessionsForm());
+    normalizeSiteSourceCheckboxes();
     refreshProfileUI();
 
     UI.UI_FIELDS.forEach(function (f) {
       var el = document.getElementById(f.id);
-      el.addEventListener(f.kind === 'check' ? 'change' : 'input', render);
-    });
-    document.getElementById('reset').addEventListener('click', function () {
-      // Reset only day-plan fields; keep car / track / site profile values.
-      var keep = {};
-      UI.PROFILE_KINDS.forEach(function (kind) {
-        fieldIdsFor(kind).forEach(function (id) { keep[id] = true; });
+      if (!el) return;
+      if (f.id === 'chargeCurveId') {
+        el.addEventListener('change', function () {
+          // Switching vehicle type: snap capacity to that model's new-pack max.
+          syncCapacityLimit({ resetToMax: true });
+          syncVehicleSelectWidth();
+          drawChargeCurveChart();
+          render();
+        });
+        return;
+      }
+      var ev = (f.kind === 'check' || f.kind === 'select') ? 'change' : 'input';
+      el.addEventListener(ev, function () {
+        if (f.id === 'genEnabled' || f.id === 'batteryEnabled' || f.id === 'gridEnabled') {
+          applySiteSourceExclusivity(f.id);
+        }
+        render();
       });
-      UI.UI_FIELDS.forEach(function (f) {
-        if (keep[f.id]) return;
-        var el = document.getElementById(f.id);
-        if (f.kind === 'check') el.checked = f.default; else el.value = f.default;
-      });
-      render();
     });
   }
 
@@ -828,11 +2736,368 @@ var UI = (function () {
     var v = {};
     UI.UI_FIELDS.forEach(function (f) {
       var el = document.getElementById(f.id);
-      if (!el) return; // inputs not mounted yet (profiles bar builds first)
-      v[f.id] = f.kind === 'check' ? el.checked : el.value;
+      if (!el) return;
+      if (f.kind === 'check') {
+        v[f.id] = el.checked;
+      } else if (f.id === 'towingCostKwh' && el.dataset.savedTow != null) {
+        // Field shows 0 while disabled; keep the real value for profiles/params storage
+        v[f.id] = el.dataset.savedTow;
+      } else {
+        v[f.id] = el.value;
+      }
     });
+    v.sessions = readSessionsForm();
     return v;
   }
+
+  function syncOffsiteStopMode() {
+    var modeEl = document.getElementById('scStopMode');
+    var tillEl = document.getElementById('scTargetKwh');
+    var forEl = document.getElementById('scChargeForMin');
+    if (!modeEl || !tillEl || !forEl) return;
+    var isFor = modeEl.value === 'for';
+    // Show only the active stop condition; keep the other value in the form for switching back.
+    var tillFld = tillEl.closest('.fld');
+    var forFld = forEl.closest('.fld');
+    if (tillFld) tillFld.hidden = isFor;
+    if (forFld) forFld.hidden = !isFor;
+    tillEl.disabled = isFor;
+    forEl.disabled = !isFor;
+  }
+  function syncCapacityLimit(opts) {
+    opts = opts || {};
+    var vehicleEl = document.getElementById('chargeCurveId');
+    var capEl = document.getElementById('capacityKwh');
+    if (!vehicleEl || !capEl || typeof Sim === 'undefined') return;
+    var max = Sim.maxCapacityKwh(vehicleEl.value);
+    capEl.max = max;
+    capEl.title = 'Max for this vehicle: ' + max + ' kWh (new-pack usable ceiling)';
+    if (opts.resetToMax) {
+      // Vehicle type changed: use full new-pack capacity for that model.
+      capEl.value = String(max);
+      return;
+    }
+    var v = parseFloat(capEl.value);
+    if (isFinite(v) && v > max) capEl.value = String(max);
+  }
+  /** Size the vehicle <select> to the currently selected label width. */
+  function syncVehicleSelectWidth() {
+    var sel = document.getElementById('chargeCurveId');
+    if (!sel) return;
+    var opt = sel.options[sel.selectedIndex];
+    var label = opt ? opt.text : '';
+    var probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font:12.5px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;';
+    probe.textContent = label;
+    document.body.appendChild(probe);
+    // Extra space for dropdown chrome / native arrow
+    var w = Math.ceil(probe.getBoundingClientRect().width) + 36;
+    document.body.removeChild(probe);
+    sel.style.width = Math.max(w, 80) + 'px';
+  }
+
+  /** Draw DC charge acceptance curve in the Car section right column. */
+  function drawChargeCurveChart() {
+    var canvas = document.getElementById('chargeCurveChart');
+    var sel = document.getElementById('chargeCurveId');
+    if (!canvas || !sel || typeof Sim === 'undefined') return;
+    var curveId = sel.value;
+    var curve = Sim.getChargeCurve(curveId);
+    if (!curve || !curve.length) return;
+
+    var col = canvas.parentElement;
+    var dpr = window.devicePixelRatio || 1;
+    var cssW = canvas.clientWidth || (col && col.clientWidth) || 260;
+    var cssH = canvas.clientHeight || 120;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    var padL = 32, padR = 10, padT = 12, padB = 22;
+    var w = cssW - padL - padR, h = cssH - padT - padB;
+    if (w < 40 || h < 40) return;
+    var xMin = 0, xMax = 100;
+    var yMax = 0;
+    curve.forEach(function (pt) { if (pt[1] > yMax) yMax = pt[1]; });
+    yMax = Math.ceil(yMax / 50) * 50 || 250;
+    var yMin = 0;
+
+    function X(soc) { return padL + (soc - xMin) / (xMax - xMin) * w; }
+    function Y(kw) { return padT + (1 - (kw - yMin) / (yMax - yMin)) * h; }
+
+    ctx.clearRect(0, 0, cssW, cssH);
+    ctx.fillStyle = '#0c0e12';
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,.06)';
+    ctx.lineWidth = 1;
+    ctx.font = '9px -apple-system,Segoe UI,Roboto,sans-serif';
+    ctx.fillStyle = '#6b7280';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (var gy = 0; gy <= yMax; gy += 50) {
+      var yy = Y(gy);
+      ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + w, yy); ctx.stroke();
+      ctx.fillText(String(gy), padL - 4, yy);
+    }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (var gx = 0; gx <= 100; gx += 25) {
+      var xx = X(gx);
+      ctx.beginPath(); ctx.moveTo(xx, padT); ctx.lineTo(xx, padT + h); ctx.stroke();
+      ctx.fillText(gx + '%', xx, padT + h + 4);
+    }
+
+    // Axes
+    ctx.strokeStyle = 'rgba(255,255,255,.18)';
+    ctx.beginPath();
+    ctx.moveTo(padL, padT);
+    ctx.lineTo(padL, padT + h);
+    ctx.lineTo(padL + w, padT + h);
+    ctx.stroke();
+
+    // Dense polyline via curvePower for smooth segments
+    ctx.strokeStyle = '#22c55e';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (var i = 0; i <= 100; i++) {
+      var kw = Sim.curvePower(i, curveId);
+      var px = X(i), py = Y(kw);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Anchor dots
+    ctx.fillStyle = '#86efac';
+    curve.forEach(function (pt) {
+      ctx.beginPath();
+      ctx.arc(X(pt[0]), Y(pt[1]), 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Peak label
+    ctx.fillStyle = '#9aa3b2';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(yMax + ' kW max', padL + 4, padT + 2);
+  }
+
+  // ---- Export / import UI ----
+  var modalEl = document.getElementById('modal');
+  var modalTitle = document.getElementById('modalTitle');
+  var modalDesc = document.getElementById('modalDesc');
+  var modalBody = document.getElementById('modalBody');
+  var modalToolbar = document.getElementById('modalToolbar');
+  var modalOk = document.getElementById('modalOk');
+  var modalCancel = document.getElementById('modalCancel');
+  var modalOnOk = null;
+
+  function closeModal() {
+    modalEl.classList.add('hidden');
+    modalOnOk = null;
+    modalBody.innerHTML = '';
+    modalToolbar.innerHTML = '';
+  }
+  function openModal(opts) {
+    modalTitle.textContent = opts.title || '';
+    modalDesc.textContent = opts.desc || '';
+    modalOk.textContent = opts.okLabel || 'OK';
+    modalBody.innerHTML = opts.bodyHtml || '';
+    modalToolbar.innerHTML = opts.toolbarHtml || '';
+    modalOnOk = opts.onOk || null;
+    modalEl.classList.remove('hidden');
+    if (opts.onOpen) opts.onOpen();
+  }
+  modalCancel.addEventListener('click', closeModal);
+  modalEl.addEventListener('click', function (e) {
+    if (e.target === modalEl) closeModal();
+  });
+  modalOk.addEventListener('click', function () {
+    if (modalOnOk) modalOnOk();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !modalEl.classList.contains('hidden')) closeModal();
+  });
+
+  function profileChecklistHtml(groups, idPrefix) {
+    // groups: [{ kind, label, profiles: [{id,name}] }]
+    return groups.map(function (g) {
+      if (!g.profiles.length) {
+        return '<div class="modal-group"><h3>' + escapeHtml(g.label) + '</h3>' +
+          '<div class="modal-desc">No profiles</div></div>';
+      }
+      return '<div class="modal-group" data-kind="' + g.kind + '"><h3>' + escapeHtml(g.label) + '</h3>' +
+        g.profiles.map(function (p) {
+          var cid = idPrefix + g.kind + '_' + p.id;
+          return '<label class="modal-check" for="' + cid + '">' +
+            '<input type="checkbox" id="' + cid + '" data-kind="' + g.kind + '" data-id="' +
+            escapeHtml(p.id) + '" data-name="' + escapeHtml(p.name) + '" checked> ' +
+            escapeHtml(p.name) + '</label>';
+        }).join('') + '</div>';
+    }).join('');
+  }
+  function readChecklistSelection() {
+    var selected = { cars: [], tracks: [], sites: [], items: [] };
+    modalBody.querySelectorAll('input[type="checkbox"][data-kind]').forEach(function (cb) {
+      if (!cb.checked) return;
+      var kind = cb.getAttribute('data-kind');
+      var id = cb.getAttribute('data-id');
+      var name = cb.getAttribute('data-name');
+      var m = UI.PROFILE_META[kind];
+      selected[m.listKey].push(id);
+      selected.items.push({ kind: kind, id: id, name: name });
+    });
+    return selected;
+  }
+  function wireSelectAllNone() {
+    var all = document.getElementById('modalSelectAll');
+    var none = document.getElementById('modalSelectNone');
+    if (all) all.addEventListener('click', function () {
+      modalBody.querySelectorAll('input[type="checkbox"][data-kind]').forEach(function (cb) { cb.checked = true; });
+    });
+    if (none) none.addEventListener('click', function () {
+      modalBody.querySelectorAll('input[type="checkbox"][data-kind]').forEach(function (cb) { cb.checked = false; });
+    });
+  }
+  function downloadJson(obj, filename) {
+    var blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function openExportDialog() {
+    var groups = UI.PROFILE_KINDS.map(function (kind) {
+      var m = UI.PROFILE_META[kind];
+      return {
+        kind: kind,
+        label: m.label,
+        profiles: (profileState[m.listKey] || []).map(function (p) {
+          return { id: p.id, name: p.name };
+        }),
+      };
+    });
+    openModal({
+      title: 'Export profiles',
+      desc: 'Choose which profiles to include in the JSON file.',
+      okLabel: 'Export',
+      toolbarHtml: '<button type="button" id="modalSelectAll">Select all</button>' +
+        '<button type="button" id="modalSelectNone">Select none</button>',
+      bodyHtml: profileChecklistHtml(groups, 'ex_'),
+      onOpen: wireSelectAllNone,
+      onOk: function () {
+        var sel = readChecklistSelection();
+        if (!sel.items.length) {
+          window.alert('Select at least one profile to export.');
+          return;
+        }
+        var payload = UI.packExport(profileState, {
+          cars: sel.cars, tracks: sel.tracks, sites: sel.sites,
+        });
+        var stamp = new Date().toISOString().slice(0, 10);
+        downloadJson(payload, 'track-charging-profiles-' + stamp + '.json');
+        closeModal();
+      },
+    });
+  }
+
+  function openImportPicker(parsed) {
+    var groups = UI.PROFILE_KINDS.map(function (kind) {
+      var m = UI.PROFILE_META[kind];
+      return {
+        kind: kind,
+        label: m.label,
+        profiles: (parsed[m.listKey] || []).map(function (p) {
+          return { id: p.id, name: p.name };
+        }),
+      };
+    });
+    var total = groups.reduce(function (n, g) { return n + g.profiles.length; }, 0);
+    if (!total) {
+      window.alert('No profiles found in that file.');
+      return;
+    }
+    openModal({
+      title: 'Import profiles',
+      desc: 'Choose which profiles to import. If a name already exists you will be asked to replace or create a “…import” copy.',
+      okLabel: 'Import',
+      toolbarHtml: '<button type="button" id="modalSelectAll">Select all</button>' +
+        '<button type="button" id="modalSelectNone">Select none</button>',
+      bodyHtml: profileChecklistHtml(groups, 'im_'),
+      onOpen: wireSelectAllNone,
+      onOk: function () {
+        var sel = readChecklistSelection();
+        if (!sel.items.length) {
+          window.alert('Select at least one profile to import.');
+          return;
+        }
+        var items = [];
+        var decisions = {};
+        sel.items.forEach(function (it) {
+          var m = UI.PROFILE_META[it.kind];
+          var list = parsed[m.listKey] || [];
+          var prof = null;
+          for (var i = 0; i < list.length; i++) {
+            if (list[i].id === it.id || list[i].name === it.name) { prof = list[i]; break; }
+          }
+          if (!prof) return;
+          var existing = UI.findByName(profileState[m.listKey] || [], prof.name);
+          if (existing) {
+            var replace = window.confirm(
+              m.label + ' profile "' + prof.name + '" already exists.\n\n' +
+              'OK = Replace existing\n' +
+              'Cancel = Import as "' + UI.duplicateImportName(prof.name) + '"'
+            );
+            decisions[it.kind + ':' + prof.name] = replace ? 'replace' : 'duplicate';
+          }
+          items.push({ kind: it.kind, profile: prof });
+        });
+        var result = UI.applyImport(profileState, items, decisions);
+        profileState = result.state;
+        saveProfiles(profileState);
+        refreshProfileUI();
+        closeModal();
+        var s = result.summary;
+        window.alert(
+          'Import complete.\n' +
+          'Added: ' + s.added + '\n' +
+          'Replaced: ' + s.replaced + '\n' +
+          'Duplicated: ' + s.duplicated
+        );
+      },
+    });
+  }
+
+  document.getElementById('btnExport').addEventListener('click', openExportDialog);
+  document.getElementById('btnImport').addEventListener('click', function () {
+    document.getElementById('importFile').click();
+  });
+  document.getElementById('importFile').addEventListener('change', function () {
+    var file = this.files && this.files[0];
+    this.value = '';
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var parsed = UI.parseImport(String(reader.result || ''));
+        openImportPicker(parsed);
+      } catch (err) {
+        window.alert('Could not import file: ' + (err && err.message ? err.message : err));
+      }
+    };
+    reader.onerror = function () {
+      window.alert('Could not read that file.');
+    };
+    reader.readAsText(file);
+  });
 
   function renderResult(p, result) {
     var el = document.getElementById('result');
@@ -925,7 +3190,7 @@ var UI = (function () {
       ctx.fillRect(s.X(seg[0]), b.padT, Math.max(1, s.X(seg[1]) - s.X(seg[0])), H - b.padT - b.padB);
     });
 
-    // session bands: solid = run, dashed outline = skipped (user or supercharge-away)
+    // session bands: solid = ran; dashed outline = missed (away during offsite trip)
     var skippedIdx = {};
     result.metrics.skippedSessions.forEach(function (ss) { skippedIdx[ss.index] = true; });
     sessionBands(p).forEach(function (sess) {
@@ -939,8 +3204,8 @@ var UI = (function () {
       }
     });
     // reserve line
-    if (p.sessionEndReservePct > 0) {
-      var ry = s.Y(p.sessionEndReservePct);
+    if (p.sessionEndReserveKwh > 0 && p.capacityKwh > 0) {
+      var ry = s.Y(p.sessionEndReserveKwh / p.capacityKwh * 100);
       ctx.strokeStyle = 'rgba(239,68,68,.6)'; ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(b.padL, ry); ctx.lineTo(W - b.padR, ry); ctx.stroke(); ctx.setLineDash([]);
     }
@@ -976,50 +3241,44 @@ var UI = (function () {
     canvas.__draw = { redraw: function (hx) { drawTimeline(canvas, p, result, opts, hx); } };
   }
 
-  function syncExclusive() {
-    // Supercharge and the 1pm session are mutually exclusive: lock the 1pm box off when supercharging.
-    var sc = document.getElementById('supercharge'), s4 = document.getElementById('runS4');
-    if (!sc || !s4) return;
-    if (sc.checked) { s4.checked = false; s4.disabled = true; } else { s4.disabled = false; }
-  }
-
-  function renderSessions(p, result) {
-    var el = document.getElementById('sessions');
-    var sched = Sim.buildSchedule(p);
-    var reasonByIdx = {};
-    result.metrics.skippedSessions.forEach(function (s) { reasonByIdx[s.index] = s.reason; });
-    var tl = result.timeline;
-    function at(min, key) {
-      var i = min - tl[0].min; if (i < 0) i = 0; if (i > tl.length - 1) i = tl.length - 1;
-      return Math.round(tl[i][key]) + '%';
-    }
-    var rows = sched.map(function (s) {
-      var reason = reasonByIdx[s.index];
-      var status = reason === 'supercharge' ? 'Supercharge' : (reason === 'skip' ? 'Skipped' : 'Run');
-      return '<tr' + (reason ? ' class="skipped"' : '') + '>' +
-        '<td>' + UI.minToHHMM(s.startMin) + '</td><td>' + status + '</td>' +
-        '<td>' + at(s.startMin, 'carPct') + ' → ' + at(s.endMin, 'carPct') + '</td>' +
-        '<td>' + at(s.startMin, 'trlPct') + ' → ' + at(s.endMin, 'trlPct') + '</td></tr>';
-    }).join('');
-    el.innerHTML = '<section class="panel"><h2>Per-session state of charge</h2>' +
-      '<table class="sessions"><thead><tr><th>Session</th><th>Status</th>' +
-      '<th>Car (start → end)</th><th>Trailer (start → end)</th></tr></thead><tbody>' + rows + '</tbody></table></section>';
+  function syncTrailerSocColumn(p) {
+    var table = document.getElementById('sessionTable');
+    if (!table) return;
+    // Trailer SoC only makes sense when the portable battery is in the model
+    var show = !!(p && Sim.siteSources(p).battery);
+    table.classList.toggle('no-trailer', !show);
   }
 
   function render() {
-    syncExclusive();
+    syncOffsiteStopMode();
+    syncCapacityLimit();
+    syncVehicleSelectWidth();
+    drawChargeCurveChart();
+    syncSiteSourceUI();
+    syncSessionGapOptions();
     var values = currentValues();
     saveValues(values); // persist so a refresh restores the inputs
+    if (values.sessions) updateSessionsTitle(values.sessions.length);
     var p = UI.readParams(values);
+    // Enforce vehicle capacity ceiling in params (and reflected in the form).
+    p.capacityKwh = Sim.clampCapacityKwh(p.capacityKwh, p.chargeCurveId);
+    var capEl = document.getElementById('capacityKwh');
+    if (capEl && parseFloat(capEl.value) !== p.capacityKwh) {
+      capEl.value = String(p.capacityKwh);
+    }
+    syncTrailerSocColumn(p);
     var result = Sim.simulate(p);
+    updateSessionsComputed(p, result);
     renderResult(p, result);
-    renderSessions(p, result);
     UI.PROFILE_KINDS.forEach(updateDirty);
   }
 
   window.__render = render; // exposed for manual debugging
   buildInputs();
+  window.addEventListener('resize', function () { drawChargeCurveChart(); });
   render();
+  // Second pass after layout so the curve column has a real height
+  requestAnimationFrame(function () { drawChargeCurveChart(); });
 })();
 // UI_END
 </script>
