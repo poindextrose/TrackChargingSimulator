@@ -323,6 +323,32 @@ test('until-next-session leaves in time for the following session', () => {
   assert.ok(r.metrics.sc.returnMin <= 14 * 60);
 });
 
+test('after offsite return, residual paddock charges onsite even if skipped hour is none', () => {
+  var p = Sim.defaultParams();
+  p.sessions = Sim.defaultSessionPlan().map(function (s) {
+    if (s.startMin === 11 * 60) {
+      return Object.assign({}, s, {
+        enabled: true, after: 'offsite', offsiteStop: 'until', offsiteUntilSocPct: 100,
+      });
+    }
+    if (s.startMin === 13 * 60) {
+      return Object.assign({}, s, { enabled: false, after: 'none' });
+    }
+    return s;
+  });
+  var r = Sim.simulate(p);
+  var trip = r.metrics.trips && r.metrics.trips[0];
+  assert.ok(trip && trip.returnMin != null);
+  var ret = trip.returnMin;
+  var nextEn = 14 * 60;
+  var a = r.timeline.find(function (pt) { return pt.min === ret; });
+  var b = r.timeline.find(function (pt) { return pt.min === nextEn - 1; });
+  assert.ok(a && b);
+  assert.equal(a.mode, 'CHARGE');
+  assert.equal(b.mode, 'CHARGE');
+  assert.ok(b.carPct > a.carPct + 1, 'car SoC should rise while charging after return');
+});
+
 test('every run session that runs is whole', () => {
   var p = cfg();
   var r = Sim.simulate(p);
