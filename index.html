@@ -225,6 +225,10 @@
   table.sess-table tr.sess-charge-row td.sess-act,
   table.sess-table tr.sess-charge-row td.ch-act {
     position:relative; z-index:3; overflow:visible;
+    white-space:normal; /* allow offsite controls to wrap under mode select */
+  }
+  table.sess-table tr.sess-charge-row td.ch-act {
+    display:flex; flex-direction:column; align-items:flex-start; gap:4px;
   }
   /* Intermediate (drive / charge / wait): smaller, normal weight; center computed start times */
   table.sess-table tr.sess-drive td:first-child,
@@ -303,7 +307,8 @@
     color:var(--txt); border:1px solid var(--line); border-radius:5px; font-size:11.5px;
   }
   table.sess-table .sess-offsite-opts {
-    display:inline-flex; align-items:center; gap:5px; margin-left:6px; vertical-align:middle;
+    display:inline-flex; flex-wrap:wrap; align-items:center; gap:5px;
+    margin-left:0; vertical-align:middle;
     position:relative; z-index:4; pointer-events:auto;
   }
   table.sess-table .sess-offsite-opts[hidden] { display:none !important; }
