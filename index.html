@@ -46,16 +46,26 @@
                  border:1px solid var(--line); border-radius:10px; }
   .section-row[data-section="car"] { border-left:3px solid var(--car); }
   .section-row[data-section="track"] { border-left:3px solid var(--accent); }
-  /* Site charging nested inside Track */
-  .track-site {
+  /* Nested panels inside Track (Site Charging, Offsite Charging) */
+  .track-panel {
     margin-top:8px; padding:10px 12px; border:1px solid var(--line); border-radius:8px;
+  }
+  .track-panel.track-site {
     border-left:3px solid var(--trl); background:rgba(59,130,246,.04);
   }
-  .track-site .section-head {
+  .track-panel.track-offsite {
+    border-left:3px solid #22c55e; background:rgba(34,197,94,.04);
+  }
+  .track-panel .section-head {
     padding-bottom:6px; margin-bottom:6px; border-bottom:1px dashed var(--line);
   }
-  .track-site .section-head .grp-title { font-size:12px; font-weight:650; }
-  .track-site .section-head select { flex:0 1 180px; width:180px; max-width:240px; font-size:12px; }
+  .track-panel .section-head .grp-title { font-size:12px; font-weight:650; }
+  .track-panel .section-head select { flex:0 1 180px; width:180px; max-width:240px; font-size:12px; }
+  .track-panel .panel-title {
+    margin:0 0 8px; font-size:12px; font-weight:650; text-transform:uppercase;
+    letter-spacing:.04em; color:var(--txt);
+  }
+  .track-panel .subgrp:first-of-type { margin-top:0; padding-top:0; border-top:none; }
   /* EV / TRACK: profile select + ⋯ menu */
   .section-head { display:flex; flex-wrap:nowrap; gap:6px; align-items:center; min-width:0;
                   padding-bottom:8px; border-bottom:1px solid var(--line); margin-bottom:2px; }
@@ -2713,11 +2723,21 @@ var UI = (function () {
         Object.keys(siteSubs).forEach(function (name) {
           siteBody += subSectionHtml(name, siteSubs[name]);
         });
-        html += '<div class="track-site" data-section-embed="site">' +
+        html += '<div class="track-panel track-site" data-section-embed="site">' +
           sectionHeadHtml('site', 'Site Charging') +
           siteBody +
         '</div>';
-        if (subs.Offsite) html += subSectionHtml('Offsite', subs.Offsite);
+        if (subs.Offsite) {
+          // Flatten Offsite fields (no enable checkboxes) inside a titled panel
+          var offBody = [];
+          subs.Offsite.forEach(function (f) {
+            if (!f.subEnable) offBody.push(f);
+          });
+          html += '<div class="track-panel track-offsite" data-section-embed="offsite">' +
+            '<div class="panel-title">Offsite Charging</div>' +
+            fieldsHtml(offBody) +
+          '</div>';
+        }
         html += '<div class="subgrp">' +
           '<div class="subgrp-head">' +
             '<div class="subgrp-title" id="sessionsTitle">Track Sessions</div>' +
