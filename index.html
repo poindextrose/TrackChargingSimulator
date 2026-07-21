@@ -12,6 +12,20 @@
          background:var(--bg); color:var(--txt); }
   header { padding:10px 16px; border-bottom:1px solid var(--line); }
   header h1 { margin:0; font-size:16px; font-weight:650; }
+  header .sub { margin:2px 0 0; font-size:12px; color:var(--mut); }
+  #profiles { display:flex; flex-wrap:wrap; gap:12px 28px; padding:10px 16px;
+              border-bottom:1px solid var(--line); background:var(--panel);
+              align-items:flex-end; }
+  .prof { display:flex; flex-direction:column; gap:4px; min-width:220px; flex:1 1 280px; }
+  .prof .prof-title { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--mut); }
+  .prof-row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .prof select { flex:1 1 140px; min-width:120px; padding:5px 8px; background:#0c0e12; color:var(--txt);
+                 border:1px solid var(--line); border-radius:6px; font-size:13px; }
+  .prof button, #reset, .btn { padding:5px 10px; border:1px solid var(--line);
+           background:#0c0e12; color:var(--txt); border-radius:6px; cursor:pointer; font-size:12.5px; }
+  .prof button:hover, #reset:hover, .btn:hover { border-color:#4b5563; }
+  .prof button:disabled { opacity:.4; cursor:not-allowed; }
+  .prof .dirty { color:var(--accent); font-size:11px; min-height:14px; }
   #inputs { display:flex; flex-direction:column; gap:12px; padding:12px 16px;
             border-bottom:1px solid var(--line); background:var(--panel); }
   .grp-row { display:flex; flex-wrap:wrap; gap:14px 30px; align-items:flex-start;
@@ -25,8 +39,7 @@
   .fld label { font-size:11px; color:var(--mut); }
   .fld input { width:92px; padding:4px 6px; background:#0c0e12; color:var(--txt);
                border:1px solid var(--line); border-radius:5px; font-size:13px; }
-  #reset { align-self:flex-end; padding:6px 10px; border:1px solid var(--line);
-           background:#0c0e12; color:var(--txt); border-radius:6px; cursor:pointer; }
+  #reset { align-self:flex-end; }
   #cards { display:flex; gap:12px; padding:14px 16px; flex-wrap:wrap; }
   .card { flex:1 1 280px; min-width:280px; background:var(--panel);
           border:1px solid var(--line); border-radius:10px; padding:12px; }
@@ -57,7 +70,11 @@
 </style>
 </head>
 <body>
-<header><h1>Track Charging Simulator — Ridge Motorsports Park HPDE</h1></header>
+<header>
+  <h1>Track Charging Simulator</h1>
+  <p class="sub">Plan portable DC charging for any car and track. Profiles are saved in this browser.</p>
+</header>
+<div id="profiles"></div>
 <div id="inputs"></div>
 <div id="result"></div>
 <div id="sessions"></div>
@@ -369,16 +386,36 @@ var UI = (function () {
   var run = function (key) { // a "run this session" checkbox maps to the engine's skip flag
     return function (out, v) { out[key] = !(v === true || v === 'true'); };
   };
+  // Car = vehicle pack & session energy. Track = day schedule + nearby public charger.
+  // Trailer/charging hardware and per-day session skips stay outside profiles.
+  var CAR_FIELD_IDS = [
+    'capacityKwh', 'arrivalSocNoTrailerPct', 'towingCostPct', 'sessionEnergyKwh',
+    'coolingPerGapKwh', 'preSessionCoolingKwh', 'sessionEndReservePct',
+  ];
+  var TRACK_FIELD_IDS = [
+    'arrivalTime', 'firstSession', 'sessionCount', 'sessionDurationMin',
+    'driveTimeMin', 'driveConsumptionPct', 'scTargetSocPct', 'scPowerCapKw',
+  ];
+
   var UI_FIELDS = [
-    { g:'Plaid', id:'arrivalTime', label:'Arrival', kind:'time', default:'08:00',
+    { g:'Car', id:'capacityKwh', label:'Capacity', unit:'kWh', step:1, default:100, min:1, set:num('capacityKwh') },
+    { g:'Car', id:'arrivalSocNoTrailerPct', label:'Arrival SoC (no trailer)', unit:'%', step:1, default:87, set:num('arrivalSocNoTrailerPct') },
+    { g:'Car', id:'towingCostPct', label:'Towing cost', unit:'% pack', step:1, default:4, set:num('towingCostPct') },
+    { g:'Car', id:'sessionEnergyKwh', label:'Energy / session', unit:'kWh', step:1, default:35, set:num('sessionEnergyKwh') },
+    { g:'Car', id:'coolingPerGapKwh', label:'Cooling / gap', unit:'kWh', step:0.5, default:6, min:0, set:num('coolingPerGapKwh') },
+    { g:'Car', id:'preSessionCoolingKwh', label:'Pre-session cooling', unit:'kWh', step:0.5, default:5, min:0, set:num('preSessionCoolingKwh') },
+    { g:'Car', id:'sessionEndReservePct', label:'Session end reserve', unit:'%', step:1, default:20, min:0, max:100, set:num('sessionEndReservePct') },
+
+    { g:'Track', id:'arrivalTime', label:'Arrival', kind:'time', default:'08:00',
       set:function(o,v){ o.arrivalTimeMin = hhmmToMin(v); } },
-    { g:'Plaid', id:'capacityKwh', label:'Capacity', unit:'kWh', step:1, default:100, min:1, set:num('capacityKwh') },
-    { g:'Plaid', id:'arrivalSocNoTrailerPct', label:'Arrival SoC (no trailer)', unit:'%', step:1, default:87, set:num('arrivalSocNoTrailerPct') },
-    { g:'Plaid', id:'towingCostPct', label:'Towing cost', unit:'% pack', step:1, default:4, set:num('towingCostPct') },
-    { g:'Plaid', id:'sessionEnergyKwh', label:'Energy / session', unit:'kWh', step:1, default:35, set:num('sessionEnergyKwh') },
-    { g:'Plaid', id:'sessionDurationMin', label:'Session length', unit:'min', step:1, default:15, min:1, set:num('sessionDurationMin') },
-    { g:'Plaid', id:'coolingPerGapKwh', label:'Cooling / gap', unit:'kWh', step:0.5, default:6, min:0, set:num('coolingPerGapKwh') },
-    { g:'Plaid', id:'preSessionCoolingKwh', label:'Pre-session cooling', unit:'kWh', step:0.5, default:5, min:0, set:num('preSessionCoolingKwh') },
+    { g:'Track', id:'firstSession', label:'First session', kind:'time', default:'09:00',
+      set:function(o,v){ o.firstSessionMin = hhmmToMin(v); } },
+    { g:'Track', id:'sessionCount', label:'# sessions', unit:'', step:1, default:7, min:1, set:num('sessionCount') },
+    { g:'Track', id:'sessionDurationMin', label:'Session length', unit:'min', step:1, default:15, min:1, set:num('sessionDurationMin') },
+    { g:'Track', id:'driveTimeMin', label:'Drive to charger', unit:'min', step:1, default:30, min:1, set:num('driveTimeMin') },
+    { g:'Track', id:'driveConsumptionPct', label:'Drive cost / leg', unit:'% pack', step:1, default:14, set:num('driveConsumptionPct') },
+    { g:'Track', id:'scTargetSocPct', label:'Charger target SoC', unit:'%', step:1, default:100, set:num('scTargetSocPct') },
+    { g:'Track', id:'scPowerCapKw', label:'Charger power cap', unit:'kW', step:5, default:250, min:1, set:num('scPowerCapKw') },
 
     { g:'Trailer & generator', id:'trailerCapKwh', label:'Trailer battery', unit:'kWh', step:1, default:50, set:num('trailerCapKwh') },
     { g:'Trailer & generator', id:'genPowerKw', label:'Generator', unit:'kW', step:0.5, default:13, min:0, set:num('genPowerKw') },
@@ -388,17 +425,8 @@ var UI = (function () {
 
     { g:'Charging', id:'dcPowerKw', label:'DC charge', unit:'kW', step:1, default:40, set:num('dcPowerKw') },
     { g:'Charging', id:'dcdcEffPct', label:'DC-DC eff', unit:'%', step:1, default:95, min:1, max:100, set:function(o,v){ o.dcdcEff = parseFloat(v)/100; } },
-    { g:'Plaid', id:'sessionEndReservePct', label:'Session end reserve', unit:'%', step:1, default:20, min:0, max:100, set:num('sessionEndReservePct') },
 
-    { g:'Day', id:'firstSession', label:'First session', kind:'time', default:'09:00',
-      set:function(o,v){ o.firstSessionMin = hhmmToMin(v); } },
-    { g:'Day', id:'sessionCount', label:'# sessions', unit:'', step:1, default:7, min:1, set:num('sessionCount') },
-
-    { g:'Supercharge', id:'supercharge', label:'Supercharge after session 3 (skips session 4)', kind:'check', default:true, set:check('supercharge') },
-    { g:'Supercharge', id:'driveTimeMin', label:'Drive each way', unit:'min', step:1, default:30, min:1, set:num('driveTimeMin') },
-    { g:'Supercharge', id:'driveConsumptionPct', label:'Drive cost / leg', unit:'% pack', step:1, default:14, set:num('driveConsumptionPct') },
-    { g:'Supercharge', id:'scTargetSocPct', label:'SC target', unit:'%', step:1, default:100, set:num('scTargetSocPct') },
-    { g:'Supercharge', id:'scPowerCapKw', label:'SC power cap', unit:'kW', step:5, default:250, min:1, set:num('scPowerCapKw') },
+    { g:'Day plan', id:'supercharge', label:'Public charge after session 3 (skips session 4)', kind:'check', default:true, set:check('supercharge') },
 
     { g:'Sessions', id:'runS1', label:'9:00', kind:'check', default:true, set:run('skipS1') },
     { g:'Sessions', id:'runS2', label:'10:00', kind:'check', default:true, set:run('skipS2') },
@@ -453,19 +481,269 @@ var UI = (function () {
     };
   }
 
-  return { UI_FIELDS: UI_FIELDS, readParams: readParams, formatMetrics: formatMetrics,
-           hhmmToMin: hhmmToMin, minToHHMM: minToHHMM, chartScale: chartScale };
+  // ---- Profile helpers (pure; used by UI and tests) ----
+  var BUILTIN_CAR_ID = 'car-plaid';
+  var BUILTIN_TRACK_ID = 'track-ridge';
+
+  function fieldDefaults(ids) {
+    var out = {};
+    ids.forEach(function (id) {
+      var f = UI_FIELDS.find(function (x) { return x.id === id; });
+      if (f) out[id] = f.kind === 'check' ? !!f.default : String(f.default);
+    });
+    return out;
+  }
+  function pickFields(values, ids) {
+    var out = {};
+    ids.forEach(function (id) {
+      if (values[id] != null && values[id] !== '') out[id] = values[id];
+    });
+    return out;
+  }
+  function valuesEqual(a, b, ids) {
+    return ids.every(function (id) {
+      var av = a[id], bv = b[id];
+      if (typeof av === 'boolean' || typeof bv === 'boolean') return !!av === !!bv;
+      return String(av == null ? '' : av) === String(bv == null ? '' : bv);
+    });
+  }
+  function newId(prefix) {
+    return prefix + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+  function builtinProfiles() {
+    return {
+      cars: [{
+        id: BUILTIN_CAR_ID,
+        name: 'Tesla Model S Plaid',
+        builtin: true,
+        values: fieldDefaults(CAR_FIELD_IDS),
+      }],
+      tracks: [{
+        id: BUILTIN_TRACK_ID,
+        name: 'Ridge Motorsports Park',
+        builtin: true,
+        values: fieldDefaults(TRACK_FIELD_IDS),
+      }],
+      activeCarId: BUILTIN_CAR_ID,
+      activeTrackId: BUILTIN_TRACK_ID,
+    };
+  }
+  function normalizeProfiles(raw) {
+    var base = builtinProfiles();
+    if (!raw || typeof raw !== 'object') return base;
+    function normalizeList(list, kind, builtinId, builtinName, fieldIds) {
+      var arr = Array.isArray(list) ? list.slice() : [];
+      arr = arr.filter(function (p) {
+        return p && typeof p === 'object' && p.id && p.name && p.values && typeof p.values === 'object';
+      }).map(function (p) {
+        return {
+          id: String(p.id),
+          name: String(p.name),
+          builtin: !!p.builtin || p.id === builtinId,
+          values: Object.assign(fieldDefaults(fieldIds), pickFields(p.values, fieldIds)),
+        };
+      });
+      if (!arr.some(function (p) { return p.id === builtinId; })) {
+        arr.unshift({
+          id: builtinId, name: builtinName, builtin: true,
+          values: fieldDefaults(fieldIds),
+        });
+      }
+      return arr;
+    }
+    var cars = normalizeList(raw.cars, 'car', BUILTIN_CAR_ID, 'Tesla Model S Plaid', CAR_FIELD_IDS);
+    var tracks = normalizeList(raw.tracks, 'track', BUILTIN_TRACK_ID, 'Ridge Motorsports Park', TRACK_FIELD_IDS);
+    var activeCarId = raw.activeCarId;
+    var activeTrackId = raw.activeTrackId;
+    if (!cars.some(function (p) { return p.id === activeCarId; })) activeCarId = cars[0].id;
+    if (!tracks.some(function (p) { return p.id === activeTrackId; })) activeTrackId = tracks[0].id;
+    return { cars: cars, tracks: tracks, activeCarId: activeCarId, activeTrackId: activeTrackId };
+  }
+  function findProfile(list, id) {
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
+  function upsertProfile(list, profile) {
+    var next = list.slice();
+    var idx = -1;
+    for (var i = 0; i < next.length; i++) if (next[i].id === profile.id) { idx = i; break; }
+    if (idx >= 0) next[idx] = profile; else next.push(profile);
+    return next;
+  }
+  function removeProfile(list, id) {
+    return list.filter(function (p) { return p.id !== id; });
+  }
+
+  return { UI_FIELDS: UI_FIELDS, CAR_FIELD_IDS: CAR_FIELD_IDS, TRACK_FIELD_IDS: TRACK_FIELD_IDS,
+           BUILTIN_CAR_ID: BUILTIN_CAR_ID, BUILTIN_TRACK_ID: BUILTIN_TRACK_ID,
+           readParams: readParams, formatMetrics: formatMetrics,
+           hhmmToMin: hhmmToMin, minToHHMM: minToHHMM, chartScale: chartScale,
+           fieldDefaults: fieldDefaults, pickFields: pickFields, valuesEqual: valuesEqual,
+           newId: newId, builtinProfiles: builtinProfiles, normalizeProfiles: normalizeProfiles,
+           findProfile: findProfile, upsertProfile: upsertProfile, removeProfile: removeProfile };
 })();
 
 (function bootstrap() {
   if (typeof document === 'undefined') return; // skip under node:vm tests
 
   var STORAGE_KEY = 'tcs-params';
+  var PROFILES_KEY = 'tcs-profiles';
   function saveValues(values) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(values)); } catch (e) { /* storage unavailable (private mode/quota) */ }
   }
   function loadValues() {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch (e) { return {}; }
+  }
+  function loadProfiles() {
+    try { return UI.normalizeProfiles(JSON.parse(localStorage.getItem(PROFILES_KEY))); }
+    catch (e) { return UI.normalizeProfiles(null); }
+  }
+  function saveProfiles(state) {
+    try { localStorage.setItem(PROFILES_KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable */ }
+  }
+
+  var profileState = loadProfiles();
+
+  function applyFieldValues(values, ids) {
+    (ids || Object.keys(values)).forEach(function (id) {
+      var f = UI.UI_FIELDS.find(function (x) { return x.id === id; });
+      var el = document.getElementById(id);
+      if (!f || !el || values[id] == null || values[id] === '') return;
+      if (f.kind === 'check') el.checked = (values[id] === true || values[id] === 'true');
+      else el.value = values[id];
+    });
+  }
+
+  function buildProfilesBar() {
+    var host = document.getElementById('profiles');
+    host.innerHTML =
+      profileBlockHtml('car', 'Car profile') +
+      profileBlockHtml('track', 'Track profile');
+    wireProfileBlock('car');
+    wireProfileBlock('track');
+    refreshProfileUI();
+  }
+  function profileBlockHtml(kind, title) {
+    return '<div class="prof" data-kind="' + kind + '">' +
+      '<div class="prof-title">' + title + '</div>' +
+      '<div class="prof-row">' +
+        '<select id="' + kind + 'Select" aria-label="' + title + '"></select>' +
+        '<button type="button" id="' + kind + 'Reload" title="Reload saved values for this profile (discard edits)">Reload</button>' +
+        '<button type="button" id="' + kind + 'Save" title="Save current values into this profile">Save</button>' +
+        '<button type="button" id="' + kind + 'SaveAs" title="Save as a new named profile">Save as…</button>' +
+        '<button type="button" id="' + kind + 'Delete" title="Delete this profile">Delete</button>' +
+      '</div>' +
+      '<div class="dirty" id="' + kind + 'Dirty"></div>' +
+    '</div>';
+  }
+  function listFor(kind) { return kind === 'car' ? profileState.cars : profileState.tracks; }
+  function activeIdFor(kind) { return kind === 'car' ? profileState.activeCarId : profileState.activeTrackId; }
+  function setActiveId(kind, id) {
+    if (kind === 'car') profileState.activeCarId = id; else profileState.activeTrackId = id;
+  }
+  function fieldIdsFor(kind) { return kind === 'car' ? UI.CAR_FIELD_IDS : UI.TRACK_FIELD_IDS; }
+
+  function wireProfileBlock(kind) {
+    document.getElementById(kind + 'Select').addEventListener('change', function () {
+      var id = this.value;
+      var prof = UI.findProfile(listFor(kind), id);
+      if (!prof) return;
+      setActiveId(kind, id);
+      applyFieldValues(prof.values, fieldIdsFor(kind));
+      saveProfiles(profileState);
+      render();
+    });
+    document.getElementById(kind + 'Reload').addEventListener('click', function () {
+      var prof = UI.findProfile(listFor(kind), activeIdFor(kind));
+      if (!prof) return;
+      applyFieldValues(prof.values, fieldIdsFor(kind));
+      render();
+    });
+    document.getElementById(kind + 'Save').addEventListener('click', function () {
+      var list = listFor(kind);
+      var prof = UI.findProfile(list, activeIdFor(kind));
+      if (!prof) return;
+      prof = {
+        id: prof.id, name: prof.name, builtin: !!prof.builtin,
+        values: UI.pickFields(currentValues(), fieldIdsFor(kind)),
+      };
+      if (kind === 'car') profileState.cars = UI.upsertProfile(list, prof);
+      else profileState.tracks = UI.upsertProfile(list, prof);
+      saveProfiles(profileState);
+      refreshProfileUI();
+    });
+    document.getElementById(kind + 'SaveAs').addEventListener('click', function () {
+      var name = window.prompt('Name for new ' + kind + ' profile:');
+      if (name == null) return;
+      name = String(name).trim();
+      if (!name) return;
+      var prof = {
+        id: UI.newId(kind),
+        name: name,
+        builtin: false,
+        values: UI.pickFields(currentValues(), fieldIdsFor(kind)),
+      };
+      if (kind === 'car') {
+        profileState.cars = UI.upsertProfile(profileState.cars, prof);
+        profileState.activeCarId = prof.id;
+      } else {
+        profileState.tracks = UI.upsertProfile(profileState.tracks, prof);
+        profileState.activeTrackId = prof.id;
+      }
+      saveProfiles(profileState);
+      refreshProfileUI();
+    });
+    document.getElementById(kind + 'Delete').addEventListener('click', function () {
+      var list = listFor(kind);
+      var id = activeIdFor(kind);
+      var prof = UI.findProfile(list, id);
+      if (!prof || list.length <= 1) return;
+      if (!window.confirm('Delete profile "' + prof.name + '"?')) return;
+      var next = UI.removeProfile(list, id);
+      if (kind === 'car') {
+        profileState.cars = next;
+        profileState.activeCarId = next[0].id;
+        applyFieldValues(next[0].values, UI.CAR_FIELD_IDS);
+      } else {
+        profileState.tracks = next;
+        profileState.activeTrackId = next[0].id;
+        applyFieldValues(next[0].values, UI.TRACK_FIELD_IDS);
+      }
+      saveProfiles(profileState);
+      render();
+    });
+  }
+
+  function refreshProfileUI() {
+    ['car', 'track'].forEach(function (kind) {
+      var sel = document.getElementById(kind + 'Select');
+      if (!sel) return;
+      var list = listFor(kind);
+      var active = activeIdFor(kind);
+      sel.innerHTML = list.map(function (p) {
+        return '<option value="' + p.id + '"' + (p.id === active ? ' selected' : '') + '>' +
+          escapeHtml(p.name) + '</option>';
+      }).join('');
+      var prof = UI.findProfile(list, active);
+      var del = document.getElementById(kind + 'Delete');
+      if (del) del.disabled = !prof || list.length <= 1;
+      updateDirty(kind);
+    });
+  }
+  function updateDirty(kind) {
+    var el = document.getElementById(kind + 'Dirty');
+    if (!el) return;
+    var prof = UI.findProfile(listFor(kind), activeIdFor(kind));
+    if (!prof) { el.textContent = ''; return; }
+    var cur = UI.pickFields(currentValues(), fieldIdsFor(kind));
+    var dirty = !UI.valuesEqual(cur, prof.values, fieldIdsFor(kind));
+    el.textContent = dirty ? 'Unsaved changes — Reload, Save, or Save as…' : '';
+    var reload = document.getElementById(kind + 'Reload');
+    if (reload) reload.disabled = !dirty;
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   function buildInputs() {
@@ -473,7 +751,11 @@ var UI = (function () {
     var groups = {};
     UI.UI_FIELDS.forEach(function (f) { (groups[f.g] = groups[f.g] || []).push(f); });
     // Which groups share each input row.
-    var ROWS = [['Plaid'], ['Trailer & generator'], ['Charging', 'Supercharge'], ['Day', 'Sessions']];
+    var ROWS = [
+      ['Car', 'Track'],
+      ['Trailer & generator', 'Charging'],
+      ['Day plan', 'Sessions'],
+    ];
     function fieldHtml(f) {
       if (f.kind === 'check') {
         return '<div class="fld chk"><label for="' + f.id + '">' +
@@ -494,7 +776,7 @@ var UI = (function () {
     var html = ROWS.map(function (row) {
       return '<div class="grp-row">' + row.map(groupHtml).join('') + '</div>';
     }).join('');
-    html += '<button id="reset">Reset</button>';
+    html += '<button id="reset" type="button">Reset day plan & hardware</button>';
     host.innerHTML = html;
     // Overlay any saved values from a previous session (defaults stay for fields not stored).
     var saved = loadValues();
@@ -504,12 +786,23 @@ var UI = (function () {
       if (f.kind === 'check') el.checked = (saved[f.id] === true || saved[f.id] === 'true');
       else el.value = saved[f.id];
     });
+    // If no prior form state, seed from active profiles.
+    if (!saved || !Object.keys(saved).length) {
+      var car = UI.findProfile(profileState.cars, profileState.activeCarId);
+      var track = UI.findProfile(profileState.tracks, profileState.activeTrackId);
+      if (car) applyFieldValues(car.values, UI.CAR_FIELD_IDS);
+      if (track) applyFieldValues(track.values, UI.TRACK_FIELD_IDS);
+    }
     UI.UI_FIELDS.forEach(function (f) {
       var el = document.getElementById(f.id);
       el.addEventListener(f.kind === 'check' ? 'change' : 'input', render);
     });
     document.getElementById('reset').addEventListener('click', function () {
+      // Reset only day-plan / hardware fields; keep car & track profile values.
+      var keep = {};
+      UI.CAR_FIELD_IDS.concat(UI.TRACK_FIELD_IDS).forEach(function (id) { keep[id] = true; });
       UI.UI_FIELDS.forEach(function (f) {
+        if (keep[f.id]) return;
         var el = document.getElementById(f.id);
         if (f.kind === 'check') el.checked = f.default; else el.value = f.default;
       });
@@ -521,6 +814,7 @@ var UI = (function () {
     var v = {};
     UI.UI_FIELDS.forEach(function (f) {
       var el = document.getElementById(f.id);
+      if (!el) return; // inputs not mounted yet (profiles bar builds first)
       v[f.id] = f.kind === 'check' ? el.checked : el.value;
     });
     return v;
@@ -661,7 +955,7 @@ var UI = (function () {
       var away = pt.mode === 'DRIVE' ? '  · driving' : pt.mode === 'SC' ? '  · supercharging' : '';
       drawTooltip(ctx, hx, b.padT + 3, [
         { text: UI.minToHHMM(pt.min) + away, color: pt.mode === 'DRIVE' ? '#eab308' : '#9aa3b2' },
-        { text: 'Plaid ' + Math.round(pt.carPct) + '%  (' + Math.round(pt.carPct / 100 * p.capacityKwh) + ' kWh)', color: '#22c55e' },
+        { text: 'Car ' + Math.round(pt.carPct) + '%  (' + Math.round(pt.carPct / 100 * p.capacityKwh) + ' kWh)', color: '#22c55e' },
         { text: 'Trailer ' + Math.round(pt.trlPct) + '%', color: '#3b82f6' }
       ], b);
     }
@@ -695,7 +989,7 @@ var UI = (function () {
     }).join('');
     el.innerHTML = '<section class="panel"><h2>Per-session state of charge</h2>' +
       '<table class="sessions"><thead><tr><th>Session</th><th>Status</th>' +
-      '<th>Plaid (start → end)</th><th>Trailer (start → end)</th></tr></thead><tbody>' + rows + '</tbody></table></section>';
+      '<th>Car (start → end)</th><th>Trailer (start → end)</th></tr></thead><tbody>' + rows + '</tbody></table></section>';
   }
 
   function render() {
@@ -706,10 +1000,14 @@ var UI = (function () {
     var result = Sim.simulate(p);
     renderResult(p, result);
     renderSessions(p, result);
+    updateDirty('car');
+    updateDirty('track');
   }
 
   window.__render = render; // exposed for manual debugging
+  // Inputs first so profile dirty-checks and applyFieldValues have real fields.
   buildInputs();
+  buildProfilesBar();
   render();
 })();
 // UI_END

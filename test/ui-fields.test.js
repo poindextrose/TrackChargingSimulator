@@ -20,7 +20,8 @@ function loadUI() {
   return ctx.UI;
 }
 
-test('layout shell has the input bar, single result panel, and sessions table', () => {
+test('layout shell has profiles bar, input bar, result panel, and sessions table', () => {
+  assert.ok(/id="profiles"/.test(html));
   assert.ok(/id="inputs"/.test(html));
   assert.ok(/id="result"/.test(html));
   assert.ok(/id="sessions"/.test(html));
@@ -109,4 +110,63 @@ test('chartScale maps domain to canvas box', () => {
   assert.equal(s.X(10), 100);
   assert.equal(s.Y(100), 0);
   assert.equal(s.Y(0), 100);
+});
+
+test('car and track field ids are disjoint subsets of UI_FIELDS', () => {
+  const UI = loadUI();
+  const all = new Set(UI.UI_FIELDS.map(f => f.id));
+  UI.CAR_FIELD_IDS.forEach(id => assert.ok(all.has(id), 'car field ' + id));
+  UI.TRACK_FIELD_IDS.forEach(id => assert.ok(all.has(id), 'track field ' + id));
+  const overlap = UI.CAR_FIELD_IDS.filter(id => UI.TRACK_FIELD_IDS.includes(id));
+  assert.deepEqual(overlap, []);
+});
+
+test('builtinProfiles seeds Plaid + Ridge with field defaults', () => {
+  const UI = loadUI();
+  const bp = UI.builtinProfiles();
+  assert.equal(bp.cars.length, 1);
+  assert.equal(bp.tracks.length, 1);
+  assert.equal(bp.cars[0].id, UI.BUILTIN_CAR_ID);
+  assert.equal(bp.tracks[0].id, UI.BUILTIN_TRACK_ID);
+  assert.equal(bp.cars[0].name, 'Tesla Model S Plaid');
+  assert.equal(bp.tracks[0].name, 'Ridge Motorsports Park');
+  assert.equal(bp.cars[0].values.capacityKwh, '100');
+  assert.equal(bp.tracks[0].values.driveTimeMin, '30');
+  assert.equal(bp.tracks[0].values.scPowerCapKw, '250');
+});
+
+test('normalizeProfiles restores missing builtins and repairs bad active ids', () => {
+  const UI = loadUI();
+  const n = UI.normalizeProfiles({
+    cars: [{ id: 'car-custom', name: 'My EV', values: { capacityKwh: '75' } }],
+    tracks: [],
+    activeCarId: 'missing',
+    activeTrackId: 'also-missing',
+  });
+  assert.ok(n.cars.some(p => p.id === UI.BUILTIN_CAR_ID));
+  assert.ok(n.cars.some(p => p.id === 'car-custom'));
+  assert.equal(n.cars.find(p => p.id === 'car-custom').values.capacityKwh, '75');
+  // custom still gets remaining car defaults filled in
+  assert.equal(n.cars.find(p => p.id === 'car-custom').values.sessionEnergyKwh, '35');
+  assert.ok(n.tracks.some(p => p.id === UI.BUILTIN_TRACK_ID));
+  assert.equal(n.activeCarId, n.cars[0].id); // repaired to first available
+  assert.equal(n.activeTrackId, n.tracks[0].id);
+});
+
+test('pickFields / valuesEqual / upsert / remove profile helpers', () => {
+  const UI = loadUI();
+  const picked = UI.pickFields({ capacityKwh: '90', dcPowerKw: '40', junk: 1 }, UI.CAR_FIELD_IDS);
+  assert.equal(picked.capacityKwh, '90');
+  assert.equal(picked.dcPowerKw, undefined);
+  assert.ok(UI.valuesEqual({ a: '1', b: true }, { a: 1, b: 'true' }, ['a', 'b']));
+  assert.ok(!UI.valuesEqual({ a: '1' }, { a: '2' }, ['a']));
+
+  let list = [{ id: 'x', name: 'X', values: { a: 1 } }];
+  list = UI.upsertProfile(list, { id: 'x', name: 'X2', values: { a: 2 } });
+  assert.equal(list.length, 1);
+  assert.equal(list[0].name, 'X2');
+  list = UI.upsertProfile(list, { id: 'y', name: 'Y', values: {} });
+  assert.equal(list.length, 2);
+  list = UI.removeProfile(list, 'x');
+  assert.deepEqual(list.map(p => p.id), ['y']);
 });
