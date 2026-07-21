@@ -2533,6 +2533,22 @@ var UI = (function () {
     block.classList.add('sess-flash');
     setTimeout(function () { block.classList.remove('sess-flash'); }, 2000);
   }
+  /** When site charging is re-enabled, convert "No charging" gaps to Charge onsite. */
+  function autoConvertNoneGapsToOnsite() {
+    var se = document.getElementById('siteChargingEnabled');
+    if (se && !se.checked) return false;
+    var form = UI.normalizeSessionsForm(readSessionsFormRaw());
+    var changed = false;
+    form.forEach(function (row) {
+      if (row.after === 'none') {
+        row.after = 'onsite';
+        changed = true;
+      }
+    });
+    if (changed) setSessionsForm(form);
+    return changed;
+  }
+
   /**
    * When offsite charging is turned back on, find enabled sessions that would go
    * below the session-end reserve (red SoC) and set Charge offsite on the previous
@@ -2975,6 +2991,7 @@ var UI = (function () {
       if (!el) return;
       el.addEventListener('change', function () {
         var turningOnOffsite = (id === 'offsiteChargingEnabled' && el.checked);
+        var turningOnSite = (id === 'siteChargingEnabled' && el.checked);
         syncTrackPanelEnables();
         // Persist enable flags onto the active track profile association fields
         var trackList = listFor('track');
@@ -2993,6 +3010,8 @@ var UI = (function () {
         }
         // Rebuild session gap selects (onsite/offsite options appear/disappear)
         setSessionsForm(readSessionsFormRaw());
+        // Re-enabling site: restore No charging → Charge onsite
+        if (turningOnSite) autoConvertNoneGapsToOnsite();
         // Re-enabling offsite: auto-add offsite before sessions that would go red
         if (turningOnOffsite) autoInsertOffsiteBeforeRedSessions();
         render();
