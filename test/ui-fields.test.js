@@ -63,7 +63,7 @@ test('sessions form maps after + start; sorts by time', () => {
   ]);
   assert.deepEqual(eng, [
     { startMin: 9 * 60, enabled: true, after: 'offsite',
-      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30 },
+      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30, residualMode: 'onsite' },
     { startMin: 13 * 60, enabled: true },
   ]);
 });
@@ -87,7 +87,7 @@ test('normalizeSessionsForm sorts and migrates legacy before to after', () => {
   ]);
   assert.deepEqual(m, [
     { start: '09:00', enabled: true, after: 'offsite',
-      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30 },
+      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30, residualMode: 'onsite' },
     { start: '13:00', enabled: true },
   ]);
 });
@@ -105,7 +105,7 @@ test('adding a session keeps existing after modes attached to their sessions', (
     { start: '09:00', enabled: true, after: 'onsite' },
     { start: '10:00', enabled: true, after: 'onsite' },
     { start: '11:00', enabled: true, after: 'offsite',
-      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30 }, // form default extras
+      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30, residualMode: 'onsite' },
     { start: '13:00', enabled: true },
   ]);
 });

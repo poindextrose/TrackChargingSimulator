@@ -238,6 +238,26 @@ test('offsite until-SoC reaches target before returning', () => {
 
 // ─── Residual paddock after offsite return ──────────────────────────────────
 
+test('residualMode none: idle after return (no paddock charge)', () => {
+  var p = Sim.defaultParams();
+  p.sessions = [
+    { startMin: 9 * 60, enabled: true, after: 'offsite', offsiteStop: 'for', offsiteForMin: 10,
+      residualMode: 'none' },
+    { startMin: 13 * 60, enabled: true },
+  ];
+  p.driveTimeMin = 20;
+  p.driveConsumptionKwh = 8;
+  var r = Sim.simulate(p);
+  var trip = r.metrics.trips[0];
+  assert.ok(trip && trip.returnMin != null);
+  // After return until next session: IDLE not CHARGE
+  var m = modesIn(r, trip.returnMin, 13 * 60);
+  assert.equal(m.CHARGE || 0, 0, JSON.stringify(m));
+  assert.ok((m.IDLE || 0) > 5, JSON.stringify(m));
+  var d = deltaPct(r, trip.returnMin, 13 * 60 - 1);
+  assert.ok(Math.abs(d) < 0.5, 'flat when residual none, delta=' + d);
+});
+
 test('residual after return charges onsite even when skipped hour is none', () => {
   var x = sim([
     { t: '09:00', after: 'onsite' },
@@ -852,6 +872,35 @@ test('layoutTripWindowSegments: SC then drive-back order (1pm skip mid-return)',
   assert.equal(segs.chargePadSeg, null);
   assert.equal(segs.waitSeg, null); // return after this window
   assert.ok(segs.scSeg.a < segs.backSeg.a);
+});
+
+test('clampPercentTyping strips trailing digits above 100; allows 99.9', () => {
+  assert.equal(UI.clampPercentTyping('99', 100), '99');
+  assert.equal(UI.clampPercentTyping('999', 100), '99');
+  assert.equal(UI.clampPercentTyping('99.9', 100), '99.9');
+  assert.equal(UI.clampPercentTyping('100', 100), '100');
+  // 100.1 → strip last digit → "100." (still a valid incomplete ≤100)
+  assert.equal(UI.clampPercentTyping('100.1', 100), '100.');
+  assert.equal(UI.clampPercentTyping('100.', 100), '100.');
+  assert.equal(UI.clampPercentTyping('150', 100), '15');
+  assert.equal(UI.clampPercentTyping('', 100), '');
+  assert.equal(UI.clampPercentTyping('80', 100), '80');
+  // typing 9 after 100 → strip back to 100
+  assert.equal(UI.clampPercentTyping('1009', 100), '100');
+  // 99 then 9 → stay at 99
+  assert.equal(UI.clampPercentTyping('999', 100), '99');
+});
+
+test('clampNumericTyping blocks negatives and caps at max', () => {
+  assert.equal(UI.clampNumericTyping('-5', { min: 0, max: 100 }), '5');
+  assert.equal(UI.clampNumericTyping('-', { min: 0 }), '');
+  assert.equal(UI.clampNumericTyping('40', { min: 0, max: 35 }), '4'); // strip last digit
+  assert.equal(UI.clampNumericTyping('35', { min: 0, max: 99.4 }), '35');
+  assert.equal(UI.clampNumericTyping('99.4', { min: 0, max: 99.4 }), '99.4');
+  assert.equal(UI.clampNumericTyping('99.5', { min: 0, max: 99.4 }), '99.');
+  assert.equal(UI.clampNumericTyping('250', { min: 1, max: 250 }), '250');
+  assert.equal(UI.clampNumericTyping('251', { min: 1, max: 250 }), '25');
+  assert.equal(UI.clampNumericTyping('', { min: 0, max: 50 }), '');
 });
 
 test('continueActivityLabel prefixes Continue when activity started earlier', () => {

@@ -310,26 +310,34 @@
   table.sess-table tr.sess-charge-row td.ch-act {
     display:flex; flex-direction:column; align-items:flex-start; gap:4px;
   }
-  /* Intermediate (drive / charge / wait): smaller, normal weight; center computed start/end times */
+  /* Intermediate (drive / charge / wait): same font size as primary rows; center start/end */
   table.sess-table tr.sess-drive td:first-child,
   table.sess-table tr.sess-charge-row td:first-child,
   table.sess-table tr.sess-wait-row td:first-child,
   table.sess-table tr.sess-drive td:nth-child(3),
   table.sess-table tr.sess-charge-row td:nth-child(3),
   table.sess-table tr.sess-wait-row td:nth-child(3) { text-align:center; }
-  table.sess-table tr.sess-drive td { color:#eab308; font-size:11.5px; font-weight:400; }
+  table.sess-table tr.sess-drive td { color:#eab308; font-weight:400; }
   table.sess-table tr.sess-charge-row td,
-  table.sess-table tr.sess-wait-row td { font-size:11.5px; font-weight:400; color:var(--mut); }
+  table.sess-table tr.sess-wait-row td { font-weight:400; color:var(--mut); }
   table.sess-table tr.sess-charge-row td.sess-act { color:var(--txt); }
   table.sess-table tr.sess-sc td .ch-start,
   table.sess-table tr.sess-sc td .ch-end,
   table.sess-table tr.sess-sc td.sess-num { color:#22c55e; }
   table.sess-table tr.sess-charge-row td.ch-start,
   table.sess-table tr.sess-charge-row td.ch-end { font-variant-numeric:tabular-nums; }
-  /* Primary session rows: larger + bold */
-  table.sess-table tr.sess-edit-row td { border-bottom-color:#3a4150; font-size:13.5px;
-                                          font-weight:650; color:var(--txt); }
+  /* Primary track-session rows: light gray band + slightly heavier weight */
+  table.sess-table tr.sess-edit-row td {
+    background: #252b36;
+    border-bottom-color: #3a4150;
+    font-weight: 650;
+    color: var(--txt);
+  }
   table.sess-table tr.sess-edit-row td.sess-mut { color:var(--mut); font-weight:600; }
+  /* Skipped / missed: keep the band but a touch flatter */
+  table.sess-table tr.sess-edit-row.sess-disabled td {
+    background: #20252e;
+  }
   table.sess-table tr.sess-missed td { color:var(--mut); }
   table.sess-table tr.sess-partial td.sess-mut { color:var(--accent); font-weight:650; }
   .sess-toast {
@@ -373,10 +381,11 @@
   table.sess-table .soc-range.soc-charge .soc-a,
   table.sess-table .soc-range.soc-charge .soc-arrow,
   table.sess-table .soc-range.soc-charge .soc-b { color: #22c55e; }
+  /* Discharge: same as normal text (not yellow) */
   table.sess-table .soc-range.soc-discharge,
   table.sess-table .soc-range.soc-discharge .soc-a,
   table.sess-table .soc-range.soc-discharge .soc-arrow,
-  table.sess-table .soc-range.soc-discharge .soc-b { color: #eab308; }
+  table.sess-table .soc-range.soc-discharge .soc-b { color: var(--txt); }
   table.sess-table .soc-range.soc-flat,
   table.sess-table .soc-range.soc-flat .soc-a,
   table.sess-table .soc-range.soc-flat .soc-arrow,
@@ -412,14 +421,16 @@
   table.sess-table input[type="time"] {
     width:5.5rem; min-width:5.5rem; max-width:5.5rem; box-sizing:border-box;
     padding:2px 4px; margin:0; background:#0c0e12; color:var(--txt);
-    border:1px solid var(--line); border-radius:5px; font-size:12.5px; font-weight:650;
-    font-variant-numeric:tabular-nums;
+    border:1px solid var(--line); border-radius:5px; font-size:inherit; font-weight:650;
+    font-variant-numeric:tabular-nums; font-family:inherit;
   }
   table.sess-table select.sess-after,
-  table.sess-table select.sess-offsite-stop {
+  table.sess-table select.sess-offsite-stop,
+  table.sess-table select.sess-residual-mode {
     width:auto; min-width:7.5rem; max-width:12rem;
     padding:2px 4px; background:#0c0e12;
-    color:var(--txt); border:1px solid var(--line); border-radius:5px; font-size:11.5px;
+    color:var(--txt); border:1px solid var(--line); border-radius:5px;
+    font-size:inherit; font-family:inherit;
   }
   table.sess-table .sess-offsite-opts {
     display:inline-flex; flex-wrap:wrap; align-items:center; gap:5px;
@@ -429,7 +440,7 @@
   table.sess-table .sess-offsite-opts[hidden] { display:none !important; }
   table.sess-table .sess-offsite-opts input[type="number"] {
     width:3.5rem; padding:2px 4px; background:#0c0e12; color:var(--txt);
-    border:1px solid var(--line); border-radius:5px; font-size:11.5px;
+    border:1px solid var(--line); border-radius:5px; font-size:inherit; font-family:inherit;
     text-align:right; -moz-appearance:textfield; position:relative; z-index:4;
     pointer-events:auto;
   }
@@ -438,7 +449,7 @@
     -webkit-appearance:none; margin:0;
   }
   table.sess-table .sess-offsite-opts .unit {
-    font-size:11px; color:var(--mut); white-space:nowrap;
+    font-size:inherit; color:var(--mut); white-space:nowrap;
   }
   table.sess-table .icon-btn { vertical-align:middle; }
   #cards { display:flex; gap:12px; padding:14px 16px; flex-wrap:wrap; }
@@ -609,6 +620,7 @@ var Sim = (function () {
         offsiteStop: s.offsiteStop,
         offsiteUntilSocPct: s.offsiteUntilSocPct,
         offsiteForMin: s.offsiteForMin,
+        residualMode: s.residualMode,
       };
     }).filter(function (s) { return isFinite(s.startMin); });
     list.sort(function (a, b) { return a.startMin - b.startMin; });
@@ -650,6 +662,8 @@ var Sim = (function () {
             if (isFinite(soc) && soc > 0 && soc <= 100) out.offsiteUntilSocPct = soc;
             var fm = parseFloat(s.offsiteForMin);
             if (isFinite(fm) && fm > 0) out.offsiteForMin = fm;
+            // After return: charge onsite (default) or sit idle (none)
+            out.residualMode = (s.residualMode === 'none') ? 'none' : 'onsite';
           }
         }
       }
@@ -693,7 +707,7 @@ var Sim = (function () {
   function defaultParams() {
     var o = {};
     for (var k in DEFAULTS) o[k] = DEFAULTS[k];
-    o.sessions = defaultSessionPlan();
+    o.sessions = normalizeSessionPlan(defaultSessionPlan());
     o.chargeCurveId = normalizeChargeCurveId(o.chargeCurveId);
     o.capacityKwh = clampCapacityKwh(o.capacityKwh, o.chargeCurveId);
     return o;
@@ -807,6 +821,7 @@ var Sim = (function () {
         offsiteStop: s.offsiteStop || null,
         offsiteUntilSocPct: s.offsiteUntilSocPct != null ? s.offsiteUntilSocPct : null,
         offsiteForMin: s.offsiteForMin != null ? s.offsiteForMin : null,
+        residualMode: s.residualMode === 'none' ? 'none' : (s.residualMode === 'onsite' ? 'onsite' : null),
       };
     });
     // Charge mode: enabled rows set after for the gap after the run.
@@ -819,6 +834,7 @@ var Sim = (function () {
       s.index = i + 1;
       s.gapStart = i === 0 ? arrival : sessions[i - 1].endMin;
       s.gapEnd = s.startMin;
+      if (s.after === 'offsite' && s.residualMode == null) s.residualMode = 'onsite';
       if (!seenEnabled) s.before = 'onsite';
       else s.before = normalizeGapAction(lastChargeAfter != null ? lastChargeAfter : lastEnabledAfter);
       if (s.enabled) {
@@ -826,6 +842,7 @@ var Sim = (function () {
         lastEnabledAfter = s.after;
         lastEnabledOffsite = s.after === 'offsite' ? {
           stop: s.offsiteStop, untilSoc: s.offsiteUntilSocPct, forMin: s.offsiteForMin,
+          residualMode: s.residualMode === 'none' ? 'none' : 'onsite',
         } : null;
         lastChargeAfter = s.after;
         s.continueAfter = s.after;
@@ -837,6 +854,7 @@ var Sim = (function () {
         }
         if (s.after !== 'offsite') {
           s.offsiteStop = null;
+          s.residualMode = null;
           s.offsiteUntilSocPct = null;
           s.offsiteForMin = null;
         }
@@ -892,15 +910,17 @@ var Sim = (function () {
       var g = o.gapMode;
       // Offsite gap while idle at track: trip owns real offsite; here act as onsite or none
       if (g === 'offsite') g = o.canCharge ? 'onsite' : 'none';
-      // Residual after return: force onsite when site power exists (even if row is "none")
-      if (o.residualActive && o.canCharge) g = 'onsite';
+      // Residual after return: default onsite when site can charge, unless trip residualMode is none
+      if (o.residualActive && o.canCharge) {
+        g = (o.residualMode === 'none') ? 'none' : 'onsite';
+      }
       if (g === 'onsite') return 'onsite';
       return 'none';
     },
     /**
      * Resolve paddock activity when not on a trip.
      * Priority: SESSION > residual/gap CHARGE > IDLE.
-     * @param {{inSession:boolean, residualActive:boolean, canCharge:boolean, gapMode:string}} o
+     * @param {{inSession:boolean, residualActive:boolean, canCharge:boolean, gapMode:string, residualMode?:string}} o
      * @returns {'SESSION'|'CHARGE'|'IDLE'}
      */
     resolveActivityState: function (o) {
@@ -975,6 +995,7 @@ var Sim = (function () {
       trip.returnMin = null;
       // Leaving again — do not sit on residual onsite charge from the previous return
       trip.residualUntilMin = null;
+      trip.residualMode = job.residualMode === 'none' ? 'none' : 'onsite';
       return true;
     },
     /**
@@ -1155,12 +1176,14 @@ var Sim = (function () {
         stopMode: stop,
         untilSocPct: untilSoc,
         forMin: forMin,
+        residualMode: os.residualMode === 'none' ? 'none' : 'onsite',
       });
     }
     var trip = {
       phase: 'idle', // idle | out | sc | back
       sessionIndex: null,
       job: null,
+      residualMode: 'onsite',
       departMin: null,
       driveEndMin: null, scStartMin: null, scEndMin: null,
       scArrivalSocPct: null, returnMin: null, lastReturnMin: null,
@@ -1262,6 +1285,7 @@ var Sim = (function () {
           residualActive: residualOn,
           canCharge: canCharge,
           gapMode: gMode,
+          residualMode: trip.residualMode === 'none' ? 'none' : 'onsite',
         };
         mode = DaySM.resolveActivityState(pad);
         if (mode === 'SESSION') {
@@ -1483,6 +1507,8 @@ var UI = (function () {
       set:function(o,v){
         o.chargeCurveId = (v === 'model-3-performance') ? 'model-3-performance' : 'model-s-plaid';
       } },
+    // Numeric limits: min/max on the field; maxRef:'capacityKwh' tracks the car pack.
+    // Typing guard enforces these (no negatives when min≥0; strip digits over max).
     { g:'EV', id:'capacityKwh', label:'Capacity', unit:'kWh', step:0.1, default:99.4, min:1, max:99.4,
       set:function(o,v){
         var curve = o.chargeCurveId || 'model-s-plaid';
@@ -1493,45 +1519,45 @@ var UI = (function () {
         if (cap > max) cap = max;
         o.capacityKwh = cap;
       } },
-    { g:'EV', id:'sessionEnergyKwh', label:'Energy / session', unit:'kWh', step:1, default:35, set:num('sessionEnergyKwh') },
-    { g:'EV', id:'coolingPerGapKwh', label:'Post-session cooling', unit:'kWh', step:0.5, default:6, min:0, set:num('coolingPerGapKwh') },
-    { g:'EV', id:'preSessionCoolingKwh', label:'Pre-session cooling', unit:'kWh', step:0.5, default:5, min:0, set:num('preSessionCoolingKwh') },
-    { g:'EV', id:'sessionEndReserveKwh', label:'Session end reserve', unit:'kWh', step:1, default:20, min:0, set:num('sessionEndReserveKwh') },
+    { g:'EV', id:'sessionEnergyKwh', label:'Energy / session', unit:'kWh', step:1, default:35, min:0, maxRef:'capacityKwh', set:num('sessionEnergyKwh') },
+    { g:'EV', id:'coolingPerGapKwh', label:'Post-session cooling', unit:'kWh', step:0.5, default:6, min:0, maxRef:'capacityKwh', set:num('coolingPerGapKwh') },
+    { g:'EV', id:'preSessionCoolingKwh', label:'Pre-session cooling', unit:'kWh', step:0.5, default:5, min:0, maxRef:'capacityKwh', set:num('preSessionCoolingKwh') },
+    { g:'EV', id:'sessionEndReserveKwh', label:'Session end reserve', unit:'kWh', step:1, default:20, min:0, maxRef:'capacityKwh', set:num('sessionEndReserveKwh') },
 
     { g:'Track', id:'arrivalTime', label:'Arrival', kind:'time', default:'08:00',
       set:function(o,v){ o.arrivalTimeMin = hhmmToMin(v); } },
-    { g:'Track', id:'sessionDurationMin', label:'Session length', unit:'min', step:1, default:20, min:1, set:num('sessionDurationMin') },
-    { g:'Track', id:'arrivalCostNoTrailerKwh', label:'Arrival cost (no trailer)', unit:'kWh', step:0.5, default:13, min:0, set:num('arrivalCostNoTrailerKwh') },
-    { g:'Track', id:'towingCostKwh', label:'Towing cost', unit:'kWh', step:0.5, default:4, min:0, set:num('towingCostKwh') },
+    { g:'Track', id:'sessionDurationMin', label:'Session length', unit:'min', step:1, default:20, min:1, max:180, set:num('sessionDurationMin') },
+    { g:'Track', id:'arrivalCostNoTrailerKwh', label:'Arrival cost (no trailer)', unit:'kWh', step:0.5, default:13, min:0, maxRef:'capacityKwh', set:num('arrivalCostNoTrailerKwh') },
+    { g:'Track', id:'towingCostKwh', label:'Towing cost', unit:'kWh', step:0.5, default:4, min:0, maxRef:'capacityKwh', set:num('towingCostKwh') },
 
     // Charging panels (display order under Track): Onsite → Portable → Offsite
     // Onsite charging (track profile): EV connector power at the facility
     { g:'Track', sub:'Onsite', id:'gridEnabled', label:'Onsite Charging', kind:'check', default:false, subEnable:true,
       set:function(o,v){ o.gridEnabled = (v === true || v === 'true'); } },
-    { g:'Track', sub:'Onsite', id:'gridPowerKw', label:'Power', unit:'kW', step:0.5, default:11.5, min:0, set:num('gridPowerKw') },
+    { g:'Track', sub:'Onsite', id:'gridPowerKw', label:'Power', unit:'kW', step:0.5, default:11.5, min:0, max:350, set:num('gridPowerKw') },
 
     { g:'Portable Charging', sub:'Generator', id:'genEnabled', label:'Generator', kind:'check', default:true, subEnable:true,
       set:function(o,v){ o.genEnabled = (v === true || v === 'true'); } },
-    { g:'Portable Charging', sub:'Generator', id:'genPowerKw', label:'Power', unit:'kW', step:0.5, default:13, min:0, set:num('genPowerKw') },
+    { g:'Portable Charging', sub:'Generator', id:'genPowerKw', label:'Power', unit:'kW', step:0.5, default:13, min:0, max:100, set:num('genPowerKw') },
     { g:'Portable Charging', sub:'Generator', id:'genFuelType', label:'Fuel', kind:'select', default:'gasoline',
       options:[{ value:'gasoline', label:'Gasoline' }, { value:'propane', label:'Propane' }],
       set:function(o,v){ o.genFuelType = (v === 'propane') ? 'propane' : 'gasoline'; } },
-    { g:'Portable Charging', sub:'Generator', id:'fuelBurnGalPerHr', label:'Fuel burn', unit:'gal/hr', step:0.1, default:1.3, set:num('fuelBurnGalPerHr') },
+    { g:'Portable Charging', sub:'Generator', id:'fuelBurnGalPerHr', label:'Fuel burn', unit:'gal/hr', step:0.1, default:1.3, min:0, max:20, set:num('fuelBurnGalPerHr') },
 
     { g:'Portable Charging', sub:'Battery', id:'batteryEnabled', label:'Battery', kind:'check', default:true, subEnable:true,
       set:function(o,v){ o.batteryEnabled = (v === true || v === 'true'); } },
-    { g:'Portable Charging', sub:'Battery', id:'trailerCapKwh', label:'Capacity', unit:'kWh', step:1, default:40, set:num('trailerCapKwh') },
+    { g:'Portable Charging', sub:'Battery', id:'trailerCapKwh', label:'Capacity', unit:'kWh', step:1, default:40, min:1, max:500, set:num('trailerCapKwh') },
     { g:'Portable Charging', sub:'Battery', id:'minTrailerSocPct', label:'Min SoC', unit:'%', step:1, default:5, min:0, max:100, set:num('minTrailerSocPct') },
-    { g:'Portable Charging', sub:'Battery', id:'dcPowerKw', label:'DC charge', unit:'kW', step:1, default:40, set:num('dcPowerKw') },
+    { g:'Portable Charging', sub:'Battery', id:'dcPowerKw', label:'DC charge', unit:'kW', step:1, default:40, min:0, max:350, set:num('dcPowerKw') },
     { g:'Portable Charging', sub:'Battery', id:'dcdcEffPct', label:'DC-DC eff', unit:'%', step:1, default:95, min:1, max:100, set:function(o,v){ o.dcdcEff = parseFloat(v)/100; } },
     // Only meaningful when generator feeds the battery DC bus (both enabled)
     { g:'Portable Charging', sub:'Battery', id:'acdcEffPct', label:'AC-DC eff', unit:'%', step:1, default:94, min:1, max:100, set:function(o,v){ o.acdcEff = parseFloat(v)/100; } },
 
     { g:'Track', sub:'Offsite', id:'scName', label:'Charger name', kind:'text', default:'Tumwater',
       set:function(o,v){ o.scName = String(v == null ? '' : v); } },
-    { g:'Track', sub:'Offsite', id:'scPowerCapKw', label:'Offsite charger power', unit:'kW', step:5, default:250, min:1, set:num('scPowerCapKw') },
-    { g:'Track', sub:'Offsite', id:'driveTimeMin', label:'One-way drive time', unit:'min', step:1, default:30, min:1, set:num('driveTimeMin') },
-    { g:'Track', sub:'Offsite', id:'driveConsumptionKwh', label:'One-way cost', unit:'kWh', step:0.5, default:13, min:0, set:num('driveConsumptionKwh') },
+    { g:'Track', sub:'Offsite', id:'scPowerCapKw', label:'Offsite charger power', unit:'kW', step:5, default:250, min:1, max:500, set:num('scPowerCapKw') },
+    { g:'Track', sub:'Offsite', id:'driveTimeMin', label:'One-way drive time', unit:'min', step:1, default:30, min:1, max:300, set:num('driveTimeMin') },
+    { g:'Track', sub:'Offsite', id:'driveConsumptionKwh', label:'One-way cost', unit:'kWh', step:0.5, default:13, min:0, maxRef:'capacityKwh', set:num('driveConsumptionKwh') },
   ];
 
   function defaultSessionsForm() {
@@ -1574,6 +1600,7 @@ var UI = (function () {
     out.offsiteUntilSocPct = (isFinite(soc) && soc > 0 && soc <= 100) ? soc : 80;
     var fm = parseFloat(src && src.offsiteForMin);
     out.offsiteForMin = (isFinite(fm) && fm > 0) ? fm : 30;
+    out.residualMode = (src && src.residualMode === 'none') ? 'none' : 'onsite';
     return out;
   }
   function normalizeSessionsForm(list) {
@@ -1590,6 +1617,7 @@ var UI = (function () {
         offsiteStop: s.offsiteStop,
         offsiteUntilSocPct: s.offsiteUntilSocPct,
         offsiteForMin: s.offsiteForMin,
+        residualMode: s.residualMode,
       };
     });
     rows.sort(function (a, b) { return hhmmToMin(a.start) - hhmmToMin(b.start); });
@@ -1622,6 +1650,7 @@ var UI = (function () {
           o.offsiteStop = s.offsiteStop;
           o.offsiteUntilSocPct = s.offsiteUntilSocPct;
           o.offsiteForMin = s.offsiteForMin;
+          o.residualMode = s.residualMode === 'none' ? 'none' : 'onsite';
         }
       }
       return o;
@@ -1897,6 +1926,7 @@ var UI = (function () {
         if ((aa[i].offsiteStop || 'next') !== (bb[i].offsiteStop || 'next')) return false;
         if (Number(aa[i].offsiteUntilSocPct) !== Number(bb[i].offsiteUntilSocPct)) return false;
         if (Number(aa[i].offsiteForMin) !== Number(bb[i].offsiteForMin)) return false;
+        if ((aa[i].residualMode || 'onsite') !== (bb[i].residualMode || 'onsite')) return false;
       }
     }
     return true;
@@ -2199,6 +2229,54 @@ var UI = (function () {
   }
 
   /**
+   * Typing guard for numeric fields.
+   * - When min ≥ 0 (or min omitted with allowNegative false): no leading minus.
+   * - When max is set: strip trailing characters until value ≤ max.
+   * Empty / incomplete ("", ".", "99.") stay as-is so multi-digit entry works.
+   * @param {string} str
+   * @param {{min?:number, max?:number, allowNegative?:boolean}} opts
+   * @returns {string}
+   */
+  function clampNumericTyping(str, opts) {
+    opts = opts || {};
+    if (str == null) return '';
+    str = String(str);
+    var min = opts.min;
+    var max = opts.max;
+    var allowNeg = opts.allowNegative === true || (min != null && isFinite(min) && min < 0);
+    // Block negatives when not allowed
+    if (!allowNeg && str.charAt(0) === '-') {
+      str = str.replace(/^-+/, '');
+    }
+    if (str === '' || str === '.' || str === '-' || str === '-.') return str;
+    var n = parseFloat(str);
+    if (!isFinite(n)) return str;
+    // Over max → strip last character(s)
+    if (max != null && isFinite(max) && n > max) {
+      var next = str;
+      while (next.length > 0) {
+        next = next.slice(0, -1);
+        if (next === '' || next === '.' || next === '-' || next === '-.') return next;
+        n = parseFloat(next);
+        if (!isFinite(n) || n <= max) return next;
+      }
+      return '';
+    }
+    // Negative when disallowed (e.g. pasted)
+    if (!allowNeg && n < 0) {
+      return clampNumericTyping(String(Math.abs(n)), opts);
+    }
+    return str;
+  }
+  /** @deprecated alias — percent fields use clampNumericTyping({ min:0, max:100 }) */
+  function clampPercentTyping(str, max) {
+    return clampNumericTyping(str, {
+      min: 0,
+      max: max == null || !isFinite(+max) ? 100 : +max,
+    });
+  }
+
+  /**
    * When an activity spans into a later session-block window, label it as a continuation.
    * e.g. "Drive back" + started earlier → "Continue drive back"
    */
@@ -2395,7 +2473,9 @@ var UI = (function () {
            fieldIdsForKind: fieldIdsForKind,
            packExport: packExport, parseImport: parseImport, findByName: findByName,
            duplicateImportName: duplicateImportName, applyImport: applyImport,
-           clipSeg: clipSeg, continueActivityLabel: continueActivityLabel,
+           clipSeg: clipSeg, clampNumericTyping: clampNumericTyping,
+           clampPercentTyping: clampPercentTyping,
+           continueActivityLabel: continueActivityLabel,
            layoutTripWindowSegments: layoutTripWindowSegments,
            layoutFullTripSegments: layoutFullTripSegments,
            isAwayMissedSession: isAwayMissedSession,
@@ -2407,6 +2487,71 @@ var UI = (function () {
 
   var STORAGE_KEY = 'tcs-params';
   var PROFILES_KEY = 'tcs-profiles';
+
+  /**
+   * Resolve typing min/max for a number input from data-num-* / data-max-ref / %.
+   */
+  function numericLimitsForInput(el) {
+    if (!el || el.tagName !== 'INPUT') return null;
+    if (el.type !== 'number' && el.type !== 'text') return null;
+    var has =
+      el.hasAttribute('data-num-min') || el.hasAttribute('data-num-max') ||
+      el.hasAttribute('data-max-ref') || el.hasAttribute('data-pct-max') ||
+      (el.classList && el.classList.contains('sess-offsite-soc'));
+    if (!has) return null;
+    var min = el.hasAttribute('data-num-min') ? parseFloat(el.getAttribute('data-num-min')) : 0;
+    var max = el.hasAttribute('data-num-max') ? parseFloat(el.getAttribute('data-num-max')) : null;
+    var ref = el.getAttribute('data-max-ref');
+    if (ref === 'capacityKwh') {
+      var capEl = document.getElementById('capacityKwh');
+      var cap = capEl ? parseFloat(capEl.value) : NaN;
+      if (isFinite(cap) && cap > 0) max = cap;
+    }
+    if (el.hasAttribute('data-pct-max') || (el.classList && el.classList.contains('sess-offsite-soc'))) {
+      var pmax = parseFloat(el.getAttribute('data-pct-max') || '100');
+      if (isFinite(pmax)) max = max == null ? pmax : Math.min(max, pmax);
+      if (!isFinite(min)) min = 0;
+    }
+    return {
+      min: isFinite(min) ? min : 0,
+      max: max != null && isFinite(max) ? max : null,
+    };
+  }
+  /**
+   * Strip digits over max / reject negatives while typing (before other input handlers).
+   */
+  function enforceNumericField(el) {
+    var lim = numericLimitsForInput(el);
+    if (!lim) return false;
+    var next = UI.clampNumericTyping(el.value, {
+      min: lim.min,
+      max: lim.max,
+      allowNegative: lim.min < 0,
+    });
+    if (next === el.value) return false;
+    el.value = next;
+    return true;
+  }
+  /** Keep data-num-max / HTML max in sync for capacity-linked fields; clamp oversize values. */
+  function syncCapacityLinkedLimits() {
+    var capEl = document.getElementById('capacityKwh');
+    var cap = capEl ? parseFloat(capEl.value) : NaN;
+    if (!isFinite(cap) || cap <= 0) return;
+    document.querySelectorAll('[data-max-ref="capacityKwh"]').forEach(function (el) {
+      el.setAttribute('data-num-max', String(cap));
+      el.max = String(cap);
+      var n = parseFloat(el.value);
+      if (isFinite(n) && n > cap) el.value = String(cap);
+    });
+  }
+  // Capture phase so we clamp before live-render handlers run
+  document.addEventListener('input', function (e) {
+    enforceNumericField(e.target);
+  }, true);
+  document.addEventListener('change', function (e) {
+    enforceNumericField(e.target);
+  }, true);
+
   function saveValues(values) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(values)); } catch (e) { /* storage unavailable (private mode/quota) */ }
   }
@@ -2918,11 +3063,11 @@ var UI = (function () {
     return '<span class="sess-offsite-opts"' + (visible ? '' : ' hidden') + '>' +
       '<select class="sess-offsite-stop" aria-label="Offsite charge stop">' + stopOpts + '</select>' +
       '<span class="sess-offsite-until"' + (stop === 'until' ? '' : ' hidden') + '>' +
-        '<input type="number" class="sess-offsite-soc" min="1" max="100" step="1" value="' + soc + '" aria-label="Charge until SoC">' +
+        '<input type="number" class="sess-offsite-soc" min="1" max="100" step="any" data-num-min="1" data-num-max="100" data-pct-max="100" value="' + soc + '" aria-label="Charge until SoC">' +
         '<span class="unit">%</span>' +
       '</span>' +
       '<span class="sess-offsite-for"' + (stop === 'for' ? '' : ' hidden') + '>' +
-        '<input type="number" class="sess-offsite-min" min="1" step="1" value="' + mins + '" aria-label="Charge for minutes">' +
+        '<input type="number" class="sess-offsite-min" min="1" max="480" step="1" data-num-min="1" data-num-max="480" value="' + mins + '" aria-label="Charge for minutes">' +
         '<span class="unit">min</span>' +
       '</span>' +
     '</span>';
@@ -3144,6 +3289,10 @@ var UI = (function () {
         '<td class="sess-num wt-trl">—</td><td></td>' +
       '</tr>'
     );
+    var residualMode = (s.residualMode === 'none') ? 'none' : 'onsite';
+    var residualKeep = (!isLast && mode === 'offsite')
+      ? '<input type="hidden" class="sess-residual-keep" value="' + residualMode + '">'
+      : '';
     var actLabel = enabled ? 'Track Session' : 'Skipped Session';
     return '<tbody class="sess-block" data-idx="' + idx + '">' +
       '<tr class="sess-edit-row' + (enabled ? '' : ' sess-disabled') + '">' +
@@ -3163,12 +3312,22 @@ var UI = (function () {
           '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5.5 2a.5.5 0 0 0-.5.5V3H2.5a.5.5 0 0 0 0 1H3v8.5A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V4h.5a.5.5 0 0 0 0-1H11v-.5a.5.5 0 0 0-.5-.5h-5zM6 3h4v.5H6V3zm-2 1h8v8.5a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5V4zm2.5 1.5a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 1 0v-5a.5.5 0 0 0-.5-.5zm3 0a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 1 0v-5a.5.5 0 0 0-.5-.5z"/></svg>' +
         '</button></td>' +
       '</tr>' +
+      residualKeep +
       chargeBlock +
     '</tbody>';
   }
   function showRow(tr, on) {
     if (!tr) return;
     if (on) tr.removeAttribute('hidden'); else tr.setAttribute('hidden', '');
+  }
+  /** After-return paddock: Charge onsite | No charging (when site power available). */
+  function residualModeSelectHtml(selected, allowOnsite) {
+    if (!allowOnsite) return 'Wait';
+    selected = selected === 'none' ? 'none' : 'onsite';
+    return '<select class="sess-residual-mode" aria-label="After return at track">' +
+      '<option value="onsite"' + (selected === 'onsite' ? ' selected' : '') + '>Charge onsite</option>' +
+      '<option value="none"' + (selected === 'none' ? ' selected' : '') + '>No charging</option>' +
+      '</select>';
   }
   function updateSessionsComputed(p, result) {
     var table = document.getElementById('sessionTable');
@@ -3372,8 +3531,38 @@ var UI = (function () {
 
         if (waitSeg) {
           showRow(waitRow, true);
-          setCell(waitRow.querySelector('.wt-act'),
-            allowOnsite ? 'Charge onsite' : 'Wait');
+          var resMode = s.residualMode === 'none' ? 'none' : 'onsite';
+          var wtAct = waitRow.querySelector('.wt-act');
+          if (wtAct) {
+            var resSel = wtAct.querySelector('select.sess-residual-mode');
+            if (allowOnsite) {
+              if (!resSel) {
+                wtAct.innerHTML = residualModeSelectHtml(resMode, true);
+                resSel = wtAct.querySelector('select.sess-residual-mode');
+                if (resSel) {
+                  resSel.addEventListener('change', function () {
+                    var keep = block.querySelector('input.sess-residual-keep');
+                    if (keep) keep.value = resSel.value;
+                    else {
+                      keep = document.createElement('input');
+                      keep.type = 'hidden';
+                      keep.className = 'sess-residual-keep';
+                      keep.value = resSel.value;
+                      block.appendChild(keep);
+                    }
+                    render();
+                  });
+                }
+              } else if (resSel.value !== resMode) {
+                // Prefer live select if user just changed it; otherwise sync from model
+                resSel.value = resMode;
+              }
+            } else {
+              wtAct.textContent = 'Wait';
+            }
+          }
+          var keepRes = block.querySelector('input.sess-residual-keep');
+          if (keepRes) keepRes.value = resMode;
           setSegClock(waitRow, '.wt-start', '.wt-end', '.wt-dur', waitSeg);
           setSocCell(waitRow.querySelector('.wt-soc'), tl, waitSeg.a, waitSeg.b - 1, p,
             'sess-num wt-soc', 'car', Object.assign({}, noRes, { modes: padModes }));
@@ -3408,15 +3597,76 @@ var UI = (function () {
         'sess-num ch-trl', 'trailer', noResOn);
     });
 
-    // Put away-missed skipped sessions after their trip origin (after drive-back block)
+    // Put away-missed skipped sessions after their trip origin (after drive-back block).
+    // Only touch the DOM when order actually changes — re-appending every render
+    // steals focus from inputs (e.g. charge-until % while typing).
     var dispOrder = UI.sessionDisplayOrder(sched, allTrips);
+    var blocksNow = table.querySelectorAll('tbody.sess-block');
     var byIdx = {};
-    table.querySelectorAll('tbody.sess-block').forEach(function (b) {
-      byIdx[+b.getAttribute('data-idx')] = b;
-    });
-    dispOrder.forEach(function (di) {
-      if (byIdx[di]) table.appendChild(byIdx[di]);
-    });
+    var curOrder = [];
+    for (var bi = 0; bi < blocksNow.length; bi++) {
+      var bid = +blocksNow[bi].getAttribute('data-idx');
+      curOrder.push(bid);
+      byIdx[bid] = blocksNow[bi];
+    }
+    var orderSame = curOrder.length === dispOrder.length;
+    if (orderSame) {
+      for (var oi = 0; oi < dispOrder.length; oi++) {
+        if (curOrder[oi] !== dispOrder[oi]) { orderSame = false; break; }
+      }
+    }
+    if (!orderSame) {
+      dispOrder.forEach(function (di) {
+        if (byIdx[di]) table.appendChild(byIdx[di]);
+      });
+    }
+  }
+
+  /** Snapshot focused session-table field so render can restore caret after DOM updates. */
+  function captureSessionFieldFocus() {
+    var ae = document.activeElement;
+    if (!ae || !ae.closest) return null;
+    var table = document.getElementById('sessionTable');
+    if (!table || !table.contains(ae)) return null;
+    var block = ae.closest('tbody.sess-block');
+    if (!block) return null;
+    var key = null;
+    if (ae.classList.contains('sess-offsite-soc')) key = 'sess-offsite-soc';
+    else if (ae.classList.contains('sess-offsite-min')) key = 'sess-offsite-min';
+    else if (ae.classList.contains('sess-start')) key = 'sess-start';
+    else if (ae.classList.contains('sess-after')) key = 'sess-after';
+    else if (ae.classList.contains('sess-offsite-stop')) key = 'sess-offsite-stop';
+    else if (ae.classList.contains('sess-enabled')) key = 'sess-enabled';
+    if (!key) return null;
+    var snap = {
+      idx: block.getAttribute('data-idx'),
+      key: key,
+      selStart: ae.selectionStart,
+      selEnd: ae.selectionEnd,
+    };
+    return snap;
+  }
+  function restoreSessionFieldFocus(snap) {
+    if (!snap) return;
+    var table = document.getElementById('sessionTable');
+    if (!table) return;
+    var block = table.querySelector('tbody.sess-block[data-idx="' + snap.idx + '"]');
+    if (!block) return;
+    var el = block.querySelector('.' + snap.key);
+    if (!el) return;
+    // Already focused (reorder skipped / no rebuild) — leave caret alone
+    if (document.activeElement === el) return;
+    try {
+      el.focus();
+      if (typeof el.setSelectionRange === 'function' && snap.selStart != null &&
+          (el.type === 'text' || el.type === 'number' || el.type === 'search' ||
+           el.type === 'tel' || el.type === 'url' || el.tagName === 'TEXTAREA')) {
+        var len = String(el.value == null ? '' : el.value).length;
+        var a = Math.min(snap.selStart, len);
+        var b = Math.min(snap.selEnd != null ? snap.selEnd : a, len);
+        el.setSelectionRange(a, b);
+      }
+    } catch (e) { /* some input types reject setSelectionRange */ }
   }
   function sessionTable() {
     return document.getElementById('sessionTable');
@@ -3596,6 +3846,7 @@ var UI = (function () {
       });
     });
     table.querySelectorAll('.sess-offsite-soc, .sess-offsite-min').forEach(function (el) {
+      // Live sim while typing; focus is preserved across render (see captureSessionFieldFocus).
       el.addEventListener('input', render);
       el.addEventListener('change', render);
     });
@@ -3732,6 +3983,11 @@ var UI = (function () {
           row.offsiteStop = stop ? stop.value : 'next';
           row.offsiteUntilSocPct = soc ? parseFloat(soc.value) : 80;
           row.offsiteForMin = mins ? parseFloat(mins.value) : 30;
+          var resSel = block.querySelector('select.sess-residual-mode');
+          var resKeep = block.querySelector('input.sess-residual-keep');
+          if (resSel) row.residualMode = resSel.value === 'none' ? 'none' : 'onsite';
+          else if (resKeep) row.residualMode = resKeep.value === 'none' ? 'none' : 'onsite';
+          else row.residualMode = 'onsite';
         }
       } else if (afterKeep && afterKeep.value) {
         row.after = afterKeep.value;
@@ -3779,9 +4035,23 @@ var UI = (function () {
           unitSuffix(f) + '</div></div>';
       }
       var type = f.kind === 'time' ? 'time' : 'number';
-      var step = f.step != null ? ' step="' + f.step + '"' : '';
+      // Percent: allow decimals (99.9). Other numbers keep declared step.
+      var step = f.unit === '%' ? ' step="any"'
+        : (f.step != null ? ' step="' + f.step + '"' : '');
       var mn = f.min != null ? ' min="' + f.min + '"' : '';
       var mx = f.max != null ? ' max="' + f.max + '"' : '';
+      // Typing guard attrs (enforced in capture-phase input listener)
+      var numAttrs = '';
+      if (type === 'number') {
+        if (f.min != null) numAttrs += ' data-num-min="' + f.min + '"';
+        else numAttrs += ' data-num-min="0"'; // default: no negatives
+        if (f.max != null) numAttrs += ' data-num-max="' + f.max + '"';
+        if (f.maxRef) numAttrs += ' data-max-ref="' + f.maxRef + '"';
+        if (f.unit === '%') {
+          numAttrs += ' data-pct-max="' + (f.max != null ? f.max : 100) + '"';
+          if (f.max == null) numAttrs += ' data-num-max="100"';
+        }
+      }
       // Size by content: short %/min → sm; decimals or values ≥100 → lg
       var wclass = '';
       if (type === 'number') {
@@ -3795,7 +4065,7 @@ var UI = (function () {
         '<div class="fld-control">' +
         '<input id="' + f.id + '" type="' + type + '"' +
         (wclass ? ' class="' + wclass + '"' : '') +
-        ' value="' + f.default + '"' + step + mn + mx + '>' +
+        ' value="' + f.default + '"' + step + mn + mx + numAttrs + '>' +
         unitSuffix(f) + '</div></div>';
     }
     function fieldsHtml(fields) {
@@ -4117,14 +4387,17 @@ var UI = (function () {
     if (!vehicleEl || !capEl || typeof Sim === 'undefined') return;
     var max = Sim.maxCapacityKwh(vehicleEl.value);
     capEl.max = max;
+    capEl.setAttribute('data-num-max', String(max));
     capEl.title = 'Max for this vehicle: ' + max + ' kWh (new-pack usable ceiling)';
     if (opts.resetToMax) {
       // Vehicle type changed: use full new-pack capacity for that model.
       capEl.value = String(max);
+      syncCapacityLinkedLimits();
       return;
     }
     var v = parseFloat(capEl.value);
     if (isFinite(v) && v > max) capEl.value = String(max);
+    syncCapacityLinkedLimits();
   }
   /** Size the vehicle <select> to the currently selected label width. */
   function syncVehicleSelectWidth() {
@@ -4712,7 +4985,10 @@ var UI = (function () {
   }
 
   function render() {
-    syncCapacityLimit();
+    // Session-table number fields (until %, for min) re-render the day on every keystroke;
+    // preserve focus/caret so typing multi-digit values does not require re-clicking.
+    var focusSnap = captureSessionFieldFocus();
+    syncCapacityLimit(); // also syncs capacity-linked maxes (energy/cooling/reserve/…)
     syncVehicleSelectWidth();
     drawChargeCurveChart();
     // Panel is-off first, then field-level greys (gen/battery/acdc/tow)
@@ -4743,6 +5019,7 @@ var UI = (function () {
     updateSessionsComputed(p, result);
     renderResult(p, result);
     UI.PROFILE_KINDS.forEach(updateDirty);
+    restoreSessionFieldFocus(focusSnap);
   }
 
   window.__render = render; // exposed for manual debugging
