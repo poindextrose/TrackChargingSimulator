@@ -45,9 +45,18 @@
                  padding:14px 16px; background:var(--panel);
                  border:1px solid var(--line); border-radius:10px; }
   .section-row[data-section="car"] { border-left:3px solid var(--car); }
-  .section-row[data-section="site"] { border-left:3px solid var(--trl); }
   .section-row[data-section="track"] { border-left:3px solid var(--accent); }
-  /* CAR / SITE / TRACK: profile select + ⋯ menu */
+  /* Site charging nested inside Track */
+  .track-site {
+    margin-top:8px; padding:10px 12px; border:1px solid var(--line); border-radius:8px;
+    border-left:3px solid var(--trl); background:rgba(59,130,246,.04);
+  }
+  .track-site .section-head {
+    padding-bottom:6px; margin-bottom:6px; border-bottom:1px dashed var(--line);
+  }
+  .track-site .section-head .grp-title { font-size:12px; font-weight:650; }
+  .track-site .section-head select { flex:0 1 180px; width:180px; max-width:240px; font-size:12px; }
+  /* EV / TRACK: profile select + ⋯ menu */
   .section-head { display:flex; flex-wrap:nowrap; gap:6px; align-items:center; min-width:0;
                   padding-bottom:8px; border-bottom:1px solid var(--line); margin-bottom:2px; }
   .section-head .grp-title { flex:0 0 auto; font-size:16px; text-transform:uppercase;
@@ -1344,6 +1353,7 @@ var UI = (function () {
   function trackFieldDefaults() {
     var out = fieldDefaults(TRACK_FIELD_IDS);
     out.sessions = defaultSessionsForm();
+    out.siteProfileId = BUILTIN_SITE_ID;
     return out;
   }
   function builtinCarProfiles() {
@@ -1374,6 +1384,9 @@ var UI = (function () {
   function pickTrackValues(values) {
     var out = pickFields(values, TRACK_FIELD_IDS);
     out.sessions = normalizeSessionsForm(values.sessions);
+    if (values.siteProfileId != null && values.siteProfileId !== '') {
+      out.siteProfileId = String(values.siteProfileId);
+    }
     return out;
   }
   function valuesEqual(a, b, ids) {
@@ -1401,7 +1414,9 @@ var UI = (function () {
     return true;
   }
   function trackValuesEqual(a, b) {
-    return valuesEqual(a, b, TRACK_FIELD_IDS) && sessionsEqual(a.sessions, b.sessions);
+    var sa = a && a.siteProfileId != null ? String(a.siteProfileId) : '';
+    var sb = b && b.siteProfileId != null ? String(b.siteProfileId) : '';
+    return valuesEqual(a, b, TRACK_FIELD_IDS) && sessionsEqual(a.sessions, b.sessions) && sa === sb;
   }
   function newId(prefix) {
     return prefix + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -1667,6 +1682,32 @@ var UI = (function () {
     if (kind === 'car') syncVehicleSelectWidth();
     if (kind === 'site') normalizeSiteSourceCheckboxes();
   }
+  /** Apply track values and the site charging profile linked to that track. */
+  function applyTrackProfile(trackProf) {
+    if (!trackProf) return;
+    applyProfileValues('track', trackProf.values || {});
+    var siteId = trackProf.values && trackProf.values.siteProfileId;
+    var siteList = listFor('site');
+    var site = (siteId && UI.findProfile(siteList, siteId)) || siteList[0];
+    if (!site) return;
+    setActiveId('site', site.id);
+    applyProfileValues('site', site.values || {});
+    var siteSel = document.getElementById('siteSelect');
+    if (siteSel) siteSel.value = site.id;
+    refreshProfileUI();
+  }
+  /** Persist which site profile is linked to the active track. */
+  function setActiveTrackSiteProfileId(siteId) {
+    var trackList = listFor('track');
+    var track = UI.findProfile(trackList, activeIdFor('track'));
+    if (!track) return;
+    var values = Object.assign({}, track.values || {}, { siteProfileId: siteId });
+    track = {
+      id: track.id, name: track.name, builtin: !!track.builtin,
+      values: values,
+    };
+    setList('track', UI.upsertProfile(trackList, track));
+  }
 
   /** Grid EV connector XOR portable gen/battery; dim disabled sub-section fields. */
   function syncSiteSourceUI() {
@@ -1738,7 +1779,11 @@ var UI = (function () {
   }
   function profileValuesFromForm(kind) {
     var cur = currentValues();
-    if (kind === 'track') return UI.pickTrackValues(cur);
+    if (kind === 'track') {
+      var tv = UI.pickTrackValues(cur);
+      tv.siteProfileId = activeIdFor('site');
+      return tv;
+    }
     return UI.pickFields(cur, fieldIdsFor(kind));
   }
 
@@ -1805,7 +1850,15 @@ var UI = (function () {
       var prof = UI.findProfile(listFor(kind), id);
       if (!prof) return;
       setActiveId(kind, id);
-      applyProfileValues(kind, prof.values);
+      if (kind === 'track') {
+        applyTrackProfile(prof);
+      } else if (kind === 'site') {
+        applyProfileValues('site', prof.values);
+        // Track remembers which site charging setup it uses
+        setActiveTrackSiteProfileId(id);
+      } else {
+        applyProfileValues(kind, prof.values);
+      }
       saveProfiles(profileState);
       closeAllProfileMenus();
       render();
@@ -1860,7 +1913,8 @@ var UI = (function () {
   function profileReload(kind) {
     var prof = UI.findProfile(listFor(kind), activeIdFor(kind));
     if (!prof) return;
-    applyProfileValues(kind, prof.values);
+    if (kind === 'track') applyTrackProfile(prof);
+    else applyProfileValues(kind, prof.values);
     render();
   }
   function profileSave(kind) {
@@ -2556,9 +2610,9 @@ var UI = (function () {
     var groups = {};
     UI.UI_FIELDS.forEach(function (f) { (groups[f.g] = groups[f.g] || []).push(f); });
 
+    // Site Charging is nested under Track (linked via track.values.siteProfileId)
     var PROFILED = [
       { group: 'EV', kind: 'car' },
-      { group: 'Site Charging', kind: 'site' },
       { group: 'Track', kind: 'track' },
     ];
 
@@ -2627,22 +2681,8 @@ var UI = (function () {
             '<div class="curve-caption">DC charge acceptance · kW vs SoC %</div>' +
           '</div></div>';
       }
-      if (g === 'Track') {
-        html += '<div class="subgrp">' +
-          '<div class="subgrp-head">' +
-            '<div class="subgrp-title" id="sessionsTitle">Track Sessions</div>' +
-            '<button type="button" id="addSession" class="icon-btn" title="Add track session" aria-label="Add track session">' +
-              '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/></svg>' +
-            '</button>' +
-          '</div>' +
-          '<div class="sess-table-wrap"><table class="sess-table" id="sessionTable">' +
-          '<colgroup><col class="c-start"><col class="c-act"><col class="c-for">' +
-          '<col class="c-soc"><col class="c-trl"><col class="c-actn"></colgroup>' +
-          '<thead><tr><th>Start</th><th>Activity</th><th>For</th><th>Car SoC</th><th>Trailer SoC</th><th></th></tr></thead>' +
-          '</table></div></div>';
-      }
-      Object.keys(subs).forEach(function (name) {
-        var fields = subs[name];
+
+      function subSectionHtml(name, fields) {
         var enable = null;
         var body = [];
         fields.forEach(function (f) {
@@ -2656,9 +2696,45 @@ var UI = (function () {
         } else {
           titleHtml = '<div class="subgrp-title">' + name + '</div>';
         }
-        html += '<div class="subgrp" data-sub="' + name + '">' +
+        return '<div class="subgrp" data-sub="' + name + '">' +
           '<div class="subgrp-head">' + titleHtml + '</div>' +
           fieldsHtml(body) + '</div>';
+      }
+
+      if (g === 'Track') {
+        // Order: arrival/main → Site Charging (profiles) → Offsite → Track Sessions
+        var siteList = groups['Site Charging'] || [];
+        var siteSubs = {};
+        siteList.forEach(function (f) {
+          if (!f.sub) return;
+          (siteSubs[f.sub] = siteSubs[f.sub] || []).push(f);
+        });
+        var siteBody = '';
+        Object.keys(siteSubs).forEach(function (name) {
+          siteBody += subSectionHtml(name, siteSubs[name]);
+        });
+        html += '<div class="track-site" data-section-embed="site">' +
+          sectionHeadHtml('site', 'Site Charging') +
+          siteBody +
+        '</div>';
+        if (subs.Offsite) html += subSectionHtml('Offsite', subs.Offsite);
+        html += '<div class="subgrp">' +
+          '<div class="subgrp-head">' +
+            '<div class="subgrp-title" id="sessionsTitle">Track Sessions</div>' +
+            '<button type="button" id="addSession" class="icon-btn" title="Add track session" aria-label="Add track session">' +
+              '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/></svg>' +
+            '</button>' +
+          '</div>' +
+          '<div class="sess-table-wrap"><table class="sess-table" id="sessionTable">' +
+          '<colgroup><col class="c-start"><col class="c-act"><col class="c-for">' +
+          '<col class="c-soc"><col class="c-trl"><col class="c-actn"></colgroup>' +
+          '<thead><tr><th>Start</th><th>Activity</th><th>For</th><th>Car SoC</th><th>Trailer SoC</th><th></th></tr></thead>' +
+          '</table></div></div>';
+        return html;
+      }
+
+      Object.keys(subs).forEach(function (name) {
+        html += subSectionHtml(name, subs[name]);
       });
       return html;
     }
@@ -2671,6 +2747,7 @@ var UI = (function () {
     }).join('');
     host.innerHTML = html;
 
+    // Wire EV + Track + nested Site profile controls
     UI.PROFILE_KINDS.forEach(wireProfileBlock);
     document.addEventListener('click', function () { closeAllProfileMenus(); });
     document.addEventListener('keydown', function (e) {
@@ -2698,12 +2775,27 @@ var UI = (function () {
     });
     var initialSessions = saved.sessions || null;
     if (!saved || !Object.keys(saved).length) {
-      UI.PROFILE_KINDS.forEach(function (kind) {
-        var prof = UI.findProfile(listFor(kind), activeIdFor(kind));
-        if (prof) applyFieldValues(prof.values, fieldIdsFor(kind));
-      });
+      var carProf = UI.findProfile(listFor('car'), activeIdFor('car'));
+      if (carProf) applyFieldValues(carProf.values, fieldIdsFor('car'));
       var trackProf = UI.findProfile(listFor('track'), activeIdFor('track'));
+      if (trackProf) applyTrackProfile(trackProf);
+      else {
+        var siteProf = UI.findProfile(listFor('site'), activeIdFor('site'));
+        if (siteProf) applyFieldValues(siteProf.values, fieldIdsFor('site'));
+      }
+      trackProf = UI.findProfile(listFor('track'), activeIdFor('track'));
       initialSessions = trackProf && trackProf.values.sessions;
+    } else {
+      // Still honor track→site profile link for the site dropdown selection
+      var tr = UI.findProfile(listFor('track'), activeIdFor('track'));
+      if (tr && tr.values && tr.values.siteProfileId) {
+        var sid = tr.values.siteProfileId;
+        if (UI.findProfile(listFor('site'), sid)) {
+          setActiveId('site', sid);
+          var siteSel = document.getElementById('siteSelect');
+          if (siteSel) siteSel.value = sid;
+        }
+      }
     }
     setSessionsForm(initialSessions || UI.defaultSessionsForm());
     normalizeSiteSourceCheckboxes();
