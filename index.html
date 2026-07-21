@@ -1108,7 +1108,7 @@ var UI = (function () {
   // Track scalar fields (session list is stored separately as values.sessions).
   var TRACK_FIELD_IDS = [
     'arrivalTime', 'sessionDurationMin', 'arrivalCostNoTrailerKwh', 'towingCostKwh',
-    'driveTimeMin', 'driveConsumptionKwh', 'scName', 'scPowerCapKw',
+    'scName', 'scPowerCapKw', 'driveTimeMin', 'driveConsumptionKwh',
   ];
   var SITE_FIELD_IDS = [
     'genEnabled', 'genPowerKw', 'genFuelType', 'fuelBurnGalPerHr',
@@ -1156,9 +1156,9 @@ var UI = (function () {
 
     { g:'Track', sub:'Offsite', id:'scName', label:'Charger name', kind:'text', default:'Supercharger',
       set:function(o,v){ o.scName = String(v == null ? '' : v); } },
+    { g:'Track', sub:'Offsite', id:'scPowerCapKw', label:'Offsite charger power', unit:'kW', step:5, default:250, min:1, set:num('scPowerCapKw') },
     { g:'Track', sub:'Offsite', id:'driveTimeMin', label:'One-way drive time', unit:'min', step:1, default:30, min:1, set:num('driveTimeMin') },
     { g:'Track', sub:'Offsite', id:'driveConsumptionKwh', label:'One-way cost', unit:'kWh', step:0.5, default:14, min:0, set:num('driveConsumptionKwh') },
-    { g:'Track', sub:'Offsite', id:'scPowerCapKw', label:'Offsite charger power', unit:'kW', step:5, default:250, min:1, set:num('scPowerCapKw') },
 
     { g:'Site Charging', sub:'Generator', id:'genEnabled', label:'Generator', kind:'check', default:true, subEnable:true,
       set:function(o,v){ o.genEnabled = (v === true || v === 'true'); } },
