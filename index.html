@@ -96,16 +96,11 @@
   .section-head .dirty-save,
   .section-head .dirty-reset {
     display:inline-flex; align-items:center; justify-content:center;
+    padding:5px 14px; font-size:12.5px; font-weight:700; letter-spacing:.02em;
     border-radius:7px; border:1px solid transparent; cursor:pointer;
     color:#0b1020; background:linear-gradient(180deg, #a5b4fc 0%, #6366f1 100%);
     box-shadow:0 0 0 2px rgba(99,102,241,.45), 0 4px 14px rgba(99,102,241,.55);
     animation: savePulse 1.6s ease-in-out infinite;
-  }
-  .section-head .dirty-save {
-    padding:5px 14px; font-size:12.5px; font-weight:700; letter-spacing:.02em;
-  }
-  .section-head .dirty-reset {
-    width:2rem; height:2rem; padding:0;
   }
   .section-head .dirty-save:hover,
   .section-head .dirty-reset:hover {
@@ -114,7 +109,6 @@
   }
   .section-head .dirty-save:active,
   .section-head .dirty-reset:active { transform:translateY(1px); }
-  .section-head .dirty-reset svg { display:block; width:15px; height:15px; }
   @keyframes savePulse {
     0%, 100% { box-shadow:0 0 0 2px rgba(99,102,241,.45), 0 4px 14px rgba(99,102,241,.5); }
     50% { box-shadow:0 0 0 4px rgba(99,102,241,.65), 0 6px 20px rgba(99,102,241,.75); }
@@ -1883,11 +1877,7 @@ var UI = (function () {
         '<button type="button" class="dirty-save" id="' + kind + 'DirtySaveAs" ' +
           'title="Save as a new named profile">Save as</button>' +
         '<button type="button" class="dirty-reset" id="' + kind + 'DirtyReset" ' +
-          'title="Discard edits and reload saved values" aria-label="Reset to saved values">' +
-          '<svg viewBox="0 0 16 16" aria-hidden="true">' +
-            '<path fill="currentColor" d="M8 1.5a6.5 6.5 0 1 0 6.33 5.07.75.75 0 0 0-1.47-.3A5 5 0 1 1 8 3v1.75a.5.5 0 0 0 .8.4l2.5-1.875a.5.5 0 0 0 0-.8L8.8 1.6A.5.5 0 0 0 8 2V1.5z"/>' +
-          '</svg>' +
-        '</button>' +
+          'title="Discard edits and reload saved values">Reset</button>' +
       '</div>' +
     '</div>';
   }
