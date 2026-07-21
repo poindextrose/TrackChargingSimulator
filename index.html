@@ -6,7 +6,12 @@
 <title>Track Charging Simulator</title>
 <style>
   :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --txt:#e6e8ec; --mut:#9aa3b2;
-          --car:#22c55e; --trl:#3b82f6; --ok:#22c55e; --bad:#ef4444; --accent:#6366f1; }
+          --car:#22c55e; --trl:#3b82f6; --ok:#22c55e; --bad:#ef4444; --accent:#6366f1;
+          /* Session activity row accents (match Track sub-panels) */
+          --drive:#eab308;
+          --at-track:#a78bfa;      /* .track-onsite */
+          --at-track-portable:#3b82f6; /* .track-portable / --trl */
+          --offsite:#22c55e;       /* .track-offsite */ }
   * { box-sizing: border-box; }
   body { margin:0; font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;
          background:var(--bg); color:var(--txt); }
@@ -317,13 +322,10 @@
   table.sess-table tr.sess-drive td:nth-child(3),
   table.sess-table tr.sess-charge-row td:nth-child(3),
   table.sess-table tr.sess-wait-row td:nth-child(3) { text-align:center; }
-  table.sess-table tr.sess-drive td { color:#eab308; font-weight:400; }
+  /* Activity row colors: drive / at-track charge / offsite (match Track panels) */
+  table.sess-table tr.sess-drive td { color:var(--drive); font-weight:400; }
   table.sess-table tr.sess-charge-row td,
   table.sess-table tr.sess-wait-row td { font-weight:400; color:var(--mut); }
-  table.sess-table tr.sess-charge-row td.sess-act { color:var(--txt); }
-  table.sess-table tr.sess-sc td .ch-start,
-  table.sess-table tr.sess-sc td .ch-end,
-  table.sess-table tr.sess-sc td.sess-num { color:#22c55e; }
   table.sess-table tr.sess-charge-row td.ch-start,
   table.sess-table tr.sess-charge-row td.ch-end { font-variant-numeric:tabular-nums; }
   /* Primary track-session rows: light gray band + slightly heavier weight */
@@ -450,6 +452,74 @@
   }
   table.sess-table .sess-offsite-opts .unit {
     font-size:inherit; color:var(--mut); white-space:nowrap;
+  }
+  /*
+   * Activity accents must beat the generic select/input color:var(--txt) rules above.
+   * Charge at track → violet (onsite) or blue (portable); charge offsite → green.
+   */
+  table.sess-table tr.sess-pad-charge td,
+  table.sess-table tr.sess-pad-charge td.sess-act,
+  table.sess-table tr.sess-pad-charge .sess-act,
+  table.sess-table tr.sess-pad-charge td.sess-mut,
+  table.sess-table tr.sess-pad-charge select.sess-after,
+  table.sess-table tr.sess-pad-charge select.sess-residual-mode {
+    color: var(--at-track) !important;
+  }
+  table.sess-table tr.sess-pad-charge select.sess-after,
+  table.sess-table tr.sess-pad-charge select.sess-residual-mode {
+    border-color: rgba(167,139,250,.5);
+  }
+  table.sess-table.at-track-portable tr.sess-pad-charge td,
+  table.sess-table.at-track-portable tr.sess-pad-charge td.sess-act,
+  table.sess-table.at-track-portable tr.sess-pad-charge .sess-act,
+  table.sess-table.at-track-portable tr.sess-pad-charge td.sess-mut,
+  table.sess-table.at-track-portable tr.sess-pad-charge select.sess-after,
+  table.sess-table.at-track-portable tr.sess-pad-charge select.sess-residual-mode {
+    color: var(--at-track-portable) !important;
+  }
+  table.sess-table.at-track-portable tr.sess-pad-charge select.sess-after,
+  table.sess-table.at-track-portable tr.sess-pad-charge select.sess-residual-mode {
+    border-color: rgba(59,130,246,.5);
+  }
+  table.sess-table tr.sess-sc td,
+  table.sess-table tr.sess-sc td.sess-act,
+  table.sess-table tr.sess-sc .sess-act,
+  table.sess-table tr.sess-sc td.sess-mut,
+  table.sess-table tr.sess-sc td.sess-num,
+  table.sess-table tr.sess-sc .ch-start,
+  table.sess-table tr.sess-sc .ch-end,
+  table.sess-table tr.sess-sc select.sess-after,
+  table.sess-table tr.sess-sc select.sess-offsite-stop,
+  table.sess-table tr.sess-sc .sess-offsite-opts,
+  table.sess-table tr.sess-sc .sess-offsite-opts input[type="number"],
+  table.sess-table tr.sess-sc .sess-offsite-opts .unit {
+    color: var(--offsite) !important;
+  }
+  table.sess-table tr.sess-sc select.sess-after,
+  table.sess-table tr.sess-sc select.sess-offsite-stop,
+  table.sess-table tr.sess-sc .sess-offsite-opts input[type="number"] {
+    border-color: rgba(34,197,94,.5);
+  }
+  /* Keep SoC charge/discharge styling (not forced green/violet on the range itself) */
+  table.sess-table tr.sess-pad-charge .soc-range.soc-charge,
+  table.sess-table tr.sess-pad-charge .soc-range.soc-charge .soc-a,
+  table.sess-table tr.sess-pad-charge .soc-range.soc-charge .soc-arrow,
+  table.sess-table tr.sess-pad-charge .soc-range.soc-charge .soc-b,
+  table.sess-table tr.sess-sc .soc-range.soc-charge,
+  table.sess-table tr.sess-sc .soc-range.soc-charge .soc-a,
+  table.sess-table tr.sess-sc .soc-range.soc-charge .soc-arrow,
+  table.sess-table tr.sess-sc .soc-range.soc-charge .soc-b {
+    color: #22c55e !important;
+  }
+  table.sess-table tr.sess-pad-charge .soc-range.soc-discharge,
+  table.sess-table tr.sess-pad-charge .soc-range.soc-discharge .soc-a,
+  table.sess-table tr.sess-pad-charge .soc-range.soc-discharge .soc-arrow,
+  table.sess-table tr.sess-pad-charge .soc-range.soc-discharge .soc-b,
+  table.sess-table tr.sess-sc .soc-range.soc-discharge,
+  table.sess-table tr.sess-sc .soc-range.soc-discharge .soc-a,
+  table.sess-table tr.sess-sc .soc-range.soc-discharge .soc-arrow,
+  table.sess-table tr.sess-sc .soc-range.soc-discharge .soc-b {
+    color: var(--txt) !important;
   }
   table.sess-table .icon-btn { vertical-align:middle; }
   #cards { display:flex; gap:12px; padding:14px 16px; flex-wrap:wrap; }
@@ -1492,7 +1562,7 @@ var UI = (function () {
   var PROFILE_KINDS = ['car', 'track', 'site'];
   // How to charge in the gap after a run session (until the next).
   var GAP_ACTION_OPTIONS = [
-    { value: 'onsite', label: 'Charge onsite' },
+    { value: 'onsite', label: 'Charge at track' },
     { value: 'offsite', label: 'Charge offsite' },
     { value: 'none', label: 'No charging' },
   ];
@@ -3043,7 +3113,7 @@ var UI = (function () {
     mode = normalizeGapModeForUi(mode, allowOnsite, allowOffsite);
     if (mode === 'offsite') return 'Charge offsite';
     if (mode === 'none') return 'No charging';
-    return 'Charge onsite';
+    return 'Charge at track';
   }
   var OFFSITE_STOP_OPTIONS = [
     { value: 'next', label: 'Until next session' },
@@ -3325,7 +3395,7 @@ var UI = (function () {
     if (!allowOnsite) return 'Wait';
     selected = selected === 'none' ? 'none' : 'onsite';
     return '<select class="sess-residual-mode" aria-label="After return at track">' +
-      '<option value="onsite"' + (selected === 'onsite' ? ' selected' : '') + '>Charge onsite</option>' +
+      '<option value="onsite"' + (selected === 'onsite' ? ' selected' : '') + '>Charge at track</option>' +
       '<option value="none"' + (selected === 'none' ? ' selected' : '') + '>No charging</option>' +
       '</select>';
   }
@@ -3502,9 +3572,15 @@ var UI = (function () {
           showRow(driveOut, false);
         }
 
+        function setChargeRowKind(kind) {
+          // kind: 'sc' | 'pad' | 'none' | null
+          chargeRow.classList.toggle('sess-sc', kind === 'sc');
+          chargeRow.classList.toggle('sess-pad-charge', kind === 'pad');
+        }
+
         if (scSeg) {
           showRow(chargeRow, true);
-          chargeRow.classList.add('sess-sc');
+          setChargeRowKind('sc');
           setAwayChargeLabel('Charge offsite');
           setSegClock(chargeRow, '.ch-start', '.ch-end', '.ch-dur', scSeg);
           setSocCell(chargeRow.querySelector('.ch-soc'), tl, scSeg.a, scSeg.b - 1, p,
@@ -3514,7 +3590,7 @@ var UI = (function () {
         } else {
           // Keep origin after-mode select even if SC not yet started
           showRow(chargeRow, true);
-          chargeRow.classList.remove('sess-sc');
+          setChargeRowKind(null);
         }
 
         if (backSeg) {
@@ -3532,6 +3608,7 @@ var UI = (function () {
         if (waitSeg) {
           showRow(waitRow, true);
           var resMode = s.residualMode === 'none' ? 'none' : 'onsite';
+          waitRow.classList.toggle('sess-pad-charge', allowOnsite && resMode === 'onsite');
           var wtAct = waitRow.querySelector('.wt-act');
           if (wtAct) {
             var resSel = wtAct.querySelector('select.sess-residual-mode');
@@ -3570,6 +3647,7 @@ var UI = (function () {
             'sess-num wt-trl', 'trailer', Object.assign({}, noRes, { modes: padModes }));
         } else {
           showRow(waitRow, false);
+          waitRow.classList.remove('sess-pad-charge');
         }
         return;
       }
@@ -3578,8 +3656,10 @@ var UI = (function () {
       showRow(driveOut, false);
       showRow(driveBack, false);
       showRow(waitRow, false);
+      waitRow.classList.remove('sess-pad-charge');
       showRow(chargeRow, true);
       chargeRow.classList.remove('sess-sc');
+      chargeRow.classList.toggle('sess-pad-charge', chargeMode === 'onsite' && allowOnsite);
       var chAct = chargeRow.querySelector('.ch-act');
       if (chAct && !chAct.querySelector('select')) {
         chAct.textContent = gapModeLabel(chargeMode, allowOnsite);
@@ -4980,8 +5060,12 @@ var UI = (function () {
     var table = document.getElementById('sessionTable');
     if (!table) return;
     // Trailer SoC only makes sense when the portable battery is in the model
-    var show = !!(p && Sim.siteSources(p).battery);
+    var src = p ? Sim.siteSources(p) : { grid: false, gen: false, battery: false };
+    var show = !!src.battery;
     table.classList.toggle('no-trailer', !show);
+    // At-track charge row accent: violet (onsite grid) vs blue (portable)
+    table.classList.toggle('at-track-portable', !src.grid && !!(src.gen || src.battery));
+    table.classList.toggle('at-track-grid', !!src.grid);
   }
 
   function render() {

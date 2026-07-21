@@ -328,7 +328,7 @@ test('sessionsEqual compares after fields', () => {
 test('GAP_ACTION_OPTIONS includes onsite, offsite, and none', () => {
   const UI = loadUI();
   assert.deepEqual(UI.GAP_ACTION_OPTIONS.map(o => o.value), ['onsite', 'offsite', 'none']);
-  assert.ok(UI.GAP_ACTION_OPTIONS.some(o => /Charge onsite/i.test(o.label)));
+  assert.ok(UI.GAP_ACTION_OPTIONS.some(o => /Charge at track/i.test(o.label)));
   assert.ok(UI.GAP_ACTION_OPTIONS.some(o => /No charging/i.test(o.label)));
 });
 

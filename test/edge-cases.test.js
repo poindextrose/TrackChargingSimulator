@@ -908,8 +908,8 @@ test('continueActivityLabel prefixes Continue when activity started earlier', ()
     'Continue drive back');
   assert.equal(UI.continueActivityLabel('Charge offsite', 12 * 60 + 20, 13 * 60),
     'Continue charge offsite');
-  assert.equal(UI.continueActivityLabel('Charge onsite', 14 * 60 + 24, 15 * 60),
-    'Continue charge onsite');
+  assert.equal(UI.continueActivityLabel('Charge at track', 14 * 60 + 24, 15 * 60),
+    'Continue charge at track');
   assert.equal(UI.continueActivityLabel('Drive to Tumwater', 11 * 60 + 20, 12 * 60),
     'Continue drive to Tumwater');
   // First appearance in this window — no prefix
