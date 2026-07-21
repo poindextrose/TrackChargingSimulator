@@ -152,6 +152,7 @@
     width:100%; height:120px; min-height:0; max-height:120px; display:block;
     /* 120 ≈ 2/3 of prior ~180 stretch; fixed so it doesn't fill full field column */
     background:#0c0e12; border:1px solid var(--line); border-radius:6px;
+    cursor:crosshair;
   }
   .curve-caption {
     flex:0 0 auto; margin-top:4px; font-size:10px; color:var(--mut); letter-spacing:.02em;
@@ -2796,8 +2797,8 @@ var UI = (function () {
     sel.style.width = Math.max(w, 80) + 'px';
   }
 
-  /** Draw DC charge acceptance curve in the Car section right column. */
-  function drawChargeCurveChart() {
+  /** Draw DC charge acceptance curve; optional hoverSoc draws crosshair + readout. */
+  function drawChargeCurveChart(hoverSoc) {
     var canvas = document.getElementById('chargeCurveChart');
     var sel = document.getElementById('chargeCurveId');
     if (!canvas || !sel || typeof Sim === 'undefined') return;
@@ -2809,8 +2810,11 @@ var UI = (function () {
     var dpr = window.devicePixelRatio || 1;
     var cssW = canvas.clientWidth || (col && col.clientWidth) || 260;
     var cssH = canvas.clientHeight || 120;
-    canvas.width = Math.round(cssW * dpr);
-    canvas.height = Math.round(cssH * dpr);
+    var bw = Math.round(cssW * dpr), bh = Math.round(cssH * dpr);
+    if (canvas.width !== bw || canvas.height !== bh) {
+      canvas.width = bw;
+      canvas.height = bh;
+    }
     var ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
@@ -2825,6 +2829,16 @@ var UI = (function () {
 
     function X(soc) { return padL + (soc - xMin) / (xMax - xMin) * w; }
     function Y(kw) { return padT + (1 - (kw - yMin) / (yMax - yMin)) * h; }
+    function socFromX(px) {
+      return xMin + (px - padL) / w * (xMax - xMin);
+    }
+
+    // Persist plot geometry for hover handlers
+    canvas.__curve = {
+      curveId: curveId, padL: padL, padR: padR, padT: padT, padB: padB,
+      w: w, h: h, cssW: cssW, cssH: cssH, xMin: xMin, xMax: xMax, yMin: yMin, yMax: yMax,
+      X: X, Y: Y, socFromX: socFromX,
+    };
 
     ctx.clearRect(0, 0, cssW, cssH);
     ctx.fillStyle = '#0c0e12';
@@ -2878,11 +2892,98 @@ var UI = (function () {
       ctx.fill();
     });
 
-    // Peak label
-    ctx.fillStyle = '#9aa3b2';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText(yMax + ' kW max', padL + 4, padT + 2);
+    // Peak label (hidden while hovering so readout is clearer)
+    if (hoverSoc == null || !isFinite(hoverSoc)) {
+      ctx.fillStyle = '#9aa3b2';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(yMax + ' kW max', padL + 4, padT + 2);
+    }
+
+    // Hover crosshair + SoC / power readout
+    if (hoverSoc != null && isFinite(hoverSoc)) {
+      var soc = Math.max(0, Math.min(100, hoverSoc));
+      var pwr = Sim.curvePower(soc, curveId);
+      var hx = X(soc), hy = Y(pwr);
+
+      ctx.save();
+      ctx.strokeStyle = 'rgba(165,180,252,.75)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      // Vertical (SoC)
+      ctx.beginPath();
+      ctx.moveTo(hx, padT);
+      ctx.lineTo(hx, padT + h);
+      ctx.stroke();
+      // Horizontal (power)
+      ctx.beginPath();
+      ctx.moveTo(padL, hy);
+      ctx.lineTo(padL + w, hy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Intersection marker
+      ctx.fillStyle = '#a5b4fc';
+      ctx.beginPath();
+      ctx.arc(hx, hy, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#0c0e12';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Readout badge
+      var label = Math.round(soc) + '% SoC  ·  ' + Math.round(pwr) + ' kW';
+      ctx.font = '10px -apple-system,Segoe UI,Roboto,sans-serif';
+      var tw = ctx.measureText(label).width + 10;
+      var th = 16;
+      var bx = hx + 8;
+      var by = hy - th - 6;
+      if (bx + tw > padL + w) bx = hx - tw - 8;
+      if (by < padT) by = hy + 8;
+      if (by + th > padT + h) by = padT + h - th;
+      ctx.fillStyle = 'rgba(15,18,28,.92)';
+      ctx.strokeStyle = 'rgba(165,180,252,.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      // simple rounded rect
+      var r = 4;
+      ctx.moveTo(bx + r, by);
+      ctx.arcTo(bx + tw, by, bx + tw, by + th, r);
+      ctx.arcTo(bx + tw, by + th, bx, by + th, r);
+      ctx.arcTo(bx, by + th, bx, by, r);
+      ctx.arcTo(bx, by, bx + tw, by, r);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#e5e7eb';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, bx + 5, by + th / 2);
+      ctx.restore();
+    }
+
+    wireChargeCurveHover(canvas);
+  }
+
+  function wireChargeCurveHover(canvas) {
+    if (!canvas || canvas.__curveHoverWired) return;
+    canvas.__curveHoverWired = true;
+    canvas.style.cursor = 'crosshair';
+    canvas.addEventListener('mousemove', function (e) {
+      var geo = canvas.__curve;
+      if (!geo) return;
+      var rect = canvas.getBoundingClientRect();
+      var px = (e.clientX - rect.left) * (geo.cssW / rect.width);
+      if (px < geo.padL || px > geo.padL + geo.w) {
+        drawChargeCurveChart(null);
+        return;
+      }
+      var soc = geo.socFromX(px);
+      drawChargeCurveChart(soc);
+    });
+    canvas.addEventListener('mouseleave', function () {
+      drawChargeCurveChart(null);
+    });
   }
 
   // ---- Export / import UI ----
