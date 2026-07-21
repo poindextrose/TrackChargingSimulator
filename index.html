@@ -559,7 +559,8 @@ var Sim = (function () {
       // Offsite over lunch: charge to 100%
       { startMin: 11 * 60, enabled: true, after: 'offsite', offsiteStop: 'until',
         offsiteUntilSocPct: 100, offsiteForMin: 30 },
-      { startMin: 13 * 60, enabled: false },
+      // Skipped lunch session: full hour available for onsite charge (not just the 40 min gap)
+      { startMin: 13 * 60, enabled: false, after: 'onsite' },
       { startMin: 14 * 60, enabled: true, after: 'onsite' },
       { startMin: 15 * 60, enabled: true, after: 'onsite' },
       { startMin: 16 * 60, enabled: true }, // last: no after
@@ -604,8 +605,9 @@ var Sim = (function () {
     }
     return list.map(function (s, i) {
       var out = { startMin: s.startMin, enabled: s.enabled !== false };
-      // Charge-after only for enabled non-last rows; skipped sessions inherit prior mode.
-      if (i < list.length - 1 && out.enabled) {
+      // Non-last rows keep a charge mode for the gap (or full hour when skipped).
+      // Enabled: mode after the run. Skipped: mode for the unused session hour until next.
+      if (i < list.length - 1) {
         out.after = normalizeGapAction(s.after);
         if (out.after === 'offsite') {
           // Preserve explicit stop mode; leave unset so simulate can fall back to track defaults
@@ -774,30 +776,40 @@ var Sim = (function () {
         offsiteForMin: s.offsiteForMin != null ? s.offsiteForMin : null,
       };
     });
-    // Charge mode carries from the last *enabled* session's after across skipped rows.
+    // Charge mode: enabled rows set after for the gap after the run.
+    // Skipped rows may set after for their unused hour; otherwise inherit prior for UI.
     var lastEnabledAfter = null;
     var lastEnabledOffsite = null;
+    var lastChargeAfter = null; // last row that defined a charge mode (enabled or skipped)
     var seenEnabled = false;
     sessions.forEach(function (s, i) {
       s.index = i + 1;
       s.gapStart = i === 0 ? arrival : sessions[i - 1].endMin;
       s.gapEnd = s.startMin;
       if (!seenEnabled) s.before = 'onsite';
-      else s.before = normalizeGapAction(lastEnabledAfter);
-      // Effective mode after this row (for UI continuation across skips)
+      else s.before = normalizeGapAction(lastChargeAfter != null ? lastChargeAfter : lastEnabledAfter);
       if (s.enabled) {
         seenEnabled = true;
         lastEnabledAfter = s.after;
         lastEnabledOffsite = s.after === 'offsite' ? {
           stop: s.offsiteStop, untilSoc: s.offsiteUntilSocPct, forMin: s.offsiteForMin,
         } : null;
+        lastChargeAfter = s.after;
         s.continueAfter = s.after;
         s.continueOffsite = lastEnabledOffsite;
       } else {
-        s.after = null;
-        s.offsiteStop = null;
-        s.continueAfter = lastEnabledAfter;
-        s.continueOffsite = lastEnabledOffsite;
+        // Skipped: keep explicit after for the hour slot; else inherit for display/sim
+        if (s.after == null || s.after === '') {
+          s.after = lastChargeAfter != null ? lastChargeAfter : lastEnabledAfter;
+        }
+        if (s.after !== 'offsite') {
+          s.offsiteStop = null;
+          s.offsiteUntilSocPct = null;
+          s.offsiteForMin = null;
+        }
+        lastChargeAfter = s.after;
+        s.continueAfter = s.after;
+        s.continueOffsite = s.after === 'offsite' ? lastEnabledOffsite : null;
       }
     });
     return sessions;
@@ -855,11 +867,13 @@ var Sim = (function () {
     }
 
     function gapModeAt(t) {
-      // During a disabled session body: continue the mode that led into it.
+      // During a disabled session body: use that row's charge mode (full hour slot).
       for (var di = 0; di < sessions.length; di++) {
         var ds = sessions[di];
         if (ds.enabled) continue;
-        if (t >= ds.startMin && t < ds.endMin) return effectiveGapMode(ds.before, p);
+        if (t >= ds.startMin && t < ds.endMin) {
+          return effectiveGapMode(ds.after != null ? ds.after : ds.before, p);
+        }
       }
       for (var gi = 0; gi < sessions.length; gi++) {
         var gs = sessions[gi];
@@ -1355,7 +1369,8 @@ var UI = (function () {
     }
     return rows.map(function (r, i) {
       var out = { start: r.start, enabled: r.enabled !== false };
-      if (i < rows.length - 1 && out.enabled) {
+      // Skipped sessions keep after so the unused hour can be Charge onsite (etc.)
+      if (i < rows.length - 1) {
         out.after = normalizeGapForm(r.after);
         if (out.after === 'offsite') attachOffsiteFields(out, r);
       }
@@ -1365,7 +1380,7 @@ var UI = (function () {
   function sessionsToEngine(list) {
     return normalizeSessionsForm(list).map(function (s) {
       var o = { startMin: hhmmToMin(s.start), enabled: s.enabled !== false };
-      if (s.after != null && o.enabled) {
+      if (s.after != null) {
         o.after = s.after;
         if (o.after === 'offsite') {
           o.offsiteStop = s.offsiteStop;
@@ -1548,7 +1563,7 @@ var UI = (function () {
             { start: '10:00', enabled: true, after: 'onsite' },
             { start: '11:00', enabled: true, after: 'offsite', offsiteStop: 'until',
               offsiteUntilSocPct: 100, offsiteForMin: 30 },
-            { start: '13:00', enabled: false },
+            { start: '13:00', enabled: false, after: 'onsite' },
             { start: '14:00', enabled: true, after: 'onsite' },
             { start: '15:00', enabled: true, after: 'onsite' },
             { start: '16:00', enabled: true },
@@ -2622,12 +2637,15 @@ var UI = (function () {
   }
   function sessionBlockHtml(s, idx, isLast, continueAfter) {
     // Primary session row first; post-session charge when not last.
-    // Enabled rows own an editable after; skipped rows continue prior mode (no dropdown).
+    // Skipped sessions still get an editable charge mode for the unused hour.
     var enabled = s.enabled !== false;
     var allowOnsite = siteChargingAvailableFromDom();
-    var mode = enabled
-      ? normalizeGapModeForUi(s.after, allowOnsite)
-      : normalizeGapModeForUi(continueAfter, allowOnsite);
+    var rawAfter = s.after != null ? s.after : continueAfter;
+    // Prefer onsite for skipped hours when site charging is available
+    if (!enabled && (rawAfter == null || rawAfter === '' || rawAfter === 'offsite') && allowOnsite) {
+      rawAfter = 'onsite';
+    }
+    var mode = normalizeGapModeForUi(rawAfter, allowOnsite);
     var chargeBlock = isLast ? '' : (
       '<tr class="sess-drive-out sess-drive" hidden>' +
         '<td class="do-start">—</td>' +
@@ -2638,7 +2656,7 @@ var UI = (function () {
       '</tr>' +
       '<tr class="sess-charge-row">' +
         '<td class="ch-start">—</td>' +
-        '<td class="sess-act ch-act">' + chargeActHtml(mode, enabled, allowOnsite, s) + '</td>' +
+        '<td class="sess-act ch-act">' + chargeActHtml(mode, true, allowOnsite, s) + '</td>' +
         '<td class="sess-mut ch-dur">—</td>' +
         '<td class="sess-num ch-soc">—</td>' +
         '<td class="sess-num ch-trl">—</td><td></td>' +
@@ -2746,7 +2764,7 @@ var UI = (function () {
       }
 
       // Post-session charge (gap after this session → next). None for last session.
-      // Skipped rows continue the prior charge mode (no own after choice).
+      // Skipped rows: charge mode for the full unused hour (start → next start).
       var driveOut = block.querySelector('tr.sess-drive-out');
       var chargeRow = block.querySelector('tr.sess-charge-row');
       var driveBack = block.querySelector('tr.sess-drive-back');
@@ -2756,7 +2774,7 @@ var UI = (function () {
 
       var next = sched[idx + 1];
       var allowOnsite = Sim.siteCanCharge(p);
-      var rawMode = enabled ? s.after : s.continueAfter;
+      var rawMode = s.after != null ? s.after : s.continueAfter;
       var chargeMode = Sim.effectiveGapMode(rawMode, p);
       var isOffsite = chargeMode === 'offsite';
       var isNone = chargeMode === 'none';
@@ -2768,7 +2786,7 @@ var UI = (function () {
       var trip = tripDest ? tripsBySess[tripDest.index] : null;
 
       // Full offsite narrative only on the enabled session that chose offsite.
-      // Skipped rows just continue the gap with a simple charge line (may split around them).
+      // Skipped rows with their own mode use a simple charge line for the full hour.
       if (isOffsite && enabled && trip && trip.departMin != null) {
         var driveOutEnd = trip.scStartMin != null ? trip.scStartMin : (trip.departMin + (p.driveTimeMin || 0));
         showRow(driveOut, true);
@@ -2821,22 +2839,23 @@ var UI = (function () {
           showRow(driveBack, false);
         }
 
-        // Wait after return until the *next table row* (may be skipped)
-        if (trip.returnMin != null && next && trip.returnMin < next.startMin) {
+        // Wait after return until the next *enabled* session (spans skipped rows)
+        var waitUntil = tripDest || next;
+        if (trip.returnMin != null && waitUntil && trip.returnMin < waitUntil.startMin) {
           showRow(waitRow, true);
           setCell(waitRow.querySelector('.wt-start'), UI.minToAmPm(trip.returnMin));
           setCell(waitRow.querySelector('.wt-act'),
             allowOnsite ? 'Charge onsite' : 'Wait');
-          setCell(waitRow.querySelector('.wt-dur'), fmtMin(next.startMin - trip.returnMin));
+          setCell(waitRow.querySelector('.wt-dur'), fmtMin(waitUntil.startMin - trip.returnMin));
           var wtA = trip.returnMin > 0 ? trip.returnMin - 1 : trip.returnMin;
-          var wtB = next.startMin > 0 ? next.startMin - 1 : next.startMin;
+          var wtB = waitUntil.startMin > 0 ? waitUntil.startMin - 1 : waitUntil.startMin;
           setSocCell(waitRow.querySelector('.wt-soc'), tl, wtA, wtB, p, 'sess-num wt-soc', 'car', noRes);
           setSocCell(waitRow.querySelector('.wt-trl'), tl, wtA, wtB, p, 'sess-num wt-trl', 'trailer', noRes);
         } else {
           showRow(waitRow, false);
         }
       } else {
-        // Onsite / none / offsite-continuation until next table row
+        // Onsite / none / skipped-hour charge until next table row
         showRow(driveOut, false);
         showRow(driveBack, false);
         showRow(waitRow, false);
@@ -2847,8 +2866,9 @@ var UI = (function () {
         if (chAct && !chAct.querySelector('select')) {
           chAct.textContent = gapModeLabel(chargeMode, allowOnsite);
         }
-        var gapStart = s.endMin;
-        var gapEnd = next ? next.startMin : s.endMin;
+        // Skipped session: entire hour (start → next). Enabled: gap after run (end → next).
+        var gapStart = enabled ? s.endMin : s.startMin;
+        var gapEnd = next ? next.startMin : (enabled ? s.endMin : s.endMin);
         var gapMin = Math.max(0, gapEnd - gapStart);
         setCell(chargeRow.querySelector('.ch-start'), UI.minToAmPm(gapStart));
         setCell(chargeRow.querySelector('.ch-dur'), fmtMin(gapMin));
@@ -2991,8 +3011,14 @@ var UI = (function () {
     });
     table.querySelectorAll('.sess-enabled').forEach(function (el) {
       el.addEventListener('change', function () {
-        // Rebuild so after-charge controls appear/disappear for enable toggles
-        setSessionsForm(readSessionsFormRaw());
+        var block = el.closest('tbody.sess-block');
+        var raw = readSessionsFormRaw();
+        // Just disabled: default the unused hour to Charge onsite when available
+        if (!el.checked && siteChargingAvailableFromDom() && block) {
+          var idx = +block.getAttribute('data-idx');
+          if (raw[idx] && raw[idx].after !== 'offsite') raw[idx].after = 'onsite';
+        }
+        setSessionsForm(raw);
         render();
       });
     });
@@ -3083,7 +3109,8 @@ var UI = (function () {
         enabled: !en || en.checked,
       };
       var after = block.querySelector('.sess-after');
-      if (after && row.enabled) {
+      // Skipped sessions also store after (charge mode for the unused hour)
+      if (after) {
         row.after = after.value || 'onsite';
         if (row.after === 'offsite') {
           var stop = block.querySelector('.sess-offsite-stop');

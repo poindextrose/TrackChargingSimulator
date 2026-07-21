@@ -99,16 +99,16 @@ test('adding a session keeps existing after modes attached to their sessions', (
   ]);
 });
 
-test('disabled session has no after; charge continues from previous enabled', () => {
+test('disabled session keeps after for full-hour onsite charge option', () => {
   const UI = loadUI();
   const Sim = loadSim();
   const n = UI.normalizeSessionsForm([
     { start: '09:00', after: 'offsite' },
-    { start: '10:00', enabled: false },
+    { start: '10:00', enabled: false, after: 'onsite' },
     { start: '13:00' },
   ]);
   assert.equal(n[1].enabled, false);
-  assert.ok(!('after' in n[1]));
+  assert.equal(n[1].after, 'onsite'); // skipped hour can charge onsite
   assert.equal(n[0].after, 'offsite');
   const sched = Sim.buildSchedule({
     ...Sim.defaultParams(),
@@ -117,8 +117,9 @@ test('disabled session has no after; charge continues from previous enabled', ()
   assert.equal(sched[0].enabled, true);
   assert.equal(sched[0].after, 'offsite');
   assert.equal(sched[1].enabled, false);
-  assert.equal(sched[1].before, 'offsite'); // inherits prior after
-  assert.equal(sched[2].before, 'offsite');
+  assert.equal(sched[1].after, 'onsite');
+  assert.equal(sched[1].before, 'offsite'); // gap into skipped still from prior offsite
+  assert.equal(sched[2].before, 'onsite'); // next session inherits skipped hour mode
   assert.equal(sched[2].enabled, true);
 });
 
@@ -190,6 +191,7 @@ test('builtin track profile has after-gap session plan and drive-in costs', () =
   assert.equal(sess.find(s => s.start === '11:00').after, 'offsite');
   assert.equal(sess.find(s => s.start === '11:00').offsiteStop, 'until');
   assert.equal(sess.find(s => s.start === '13:00').enabled, false);
+  assert.equal(sess.find(s => s.start === '13:00').after, 'onsite'); // full hour onsite
   assert.equal(sess.find(s => s.start === '14:00').enabled, true);
   assert.ok(!('after' in sess.find(s => s.start === '16:00')));
   assert.ok(sess.every(s => !s.action && !s.before));
