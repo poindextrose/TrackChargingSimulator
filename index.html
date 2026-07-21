@@ -540,9 +540,6 @@ var Sim = (function () {
     driveTimeMin: 30,
     driveConsumptionKwh: 14,
     scName: 'Supercharger',
-    scStopMode: 'till', // 'till' = charge to target kWh; 'for' = charge for a fixed time
-    scTargetKwh: 100,
-    scChargeForMin: 30,
     scPowerCapKw: 250,
     minTrailerSocPct: 5,
   };
@@ -703,7 +700,8 @@ var Sim = (function () {
     var lastSessionEnd = startMin;
     sessions.forEach(function (s) { if (s.endMin > lastSessionEnd) lastSessionEnd = s.endMin; });
     var endMin = lastSessionEnd + 60;
-    var offsiteBudget = p.driveTimeMin * 2 + (p.scStopMode === 'for' ? p.scChargeForMin : 180);
+    // Budget: round-trip drive + room for a long stop (until-SoC / until-next)
+    var offsiteBudget = p.driveTimeMin * 2 + 180;
     sessions.forEach(function (s) {
       if (s.enabled && s.after === 'offsite') {
         endMin = Math.max(endMin, s.endMin + offsiteBudget);
@@ -768,21 +766,12 @@ var Sim = (function () {
         if (sessions[oj].enabled) { dest = sessions[oj]; break; }
       }
       if (!dest) continue;
-      var stop = normalizeOffsiteStop(os.offsiteStop);
+      var stop = normalizeOffsiteStop(os.offsiteStop != null ? os.offsiteStop : 'next');
       var untilSoc = parseFloat(os.offsiteUntilSocPct);
       if (!isFinite(untilSoc) || untilSoc <= 0) untilSoc = 80;
       if (untilSoc > 100) untilSoc = 100;
       var forMin = parseFloat(os.offsiteForMin);
-      if (!isFinite(forMin) || forMin <= 0) forMin = p.scChargeForMin > 0 ? p.scChargeForMin : 30;
-      // Legacy track-level defaults when session lacks explicit stop mode
-      if (os.offsiteStop == null && p.scStopMode === 'for') stop = 'for';
-      else if (os.offsiteStop == null && p.scStopMode === 'till') {
-        stop = 'until';
-        // scTargetKwh → approx SoC % of pack
-        if (p.scTargetKwh > 0 && cap > 0) {
-          untilSoc = Math.min(100, Math.max(1, (p.scTargetKwh / cap) * 100));
-        }
-      }
+      if (!isFinite(forMin) || forMin <= 0) forMin = 30;
       offsiteQueue.push({
         gapStart: os.endMin,
         sessionIndex: dest.index,
@@ -1085,7 +1074,7 @@ var UI = (function () {
   // Track scalar fields (session list is stored separately as values.sessions).
   var TRACK_FIELD_IDS = [
     'arrivalTime', 'sessionDurationMin', 'arrivalCostNoTrailerKwh', 'towingCostKwh',
-    'driveTimeMin', 'driveConsumptionKwh', 'scName', 'scStopMode', 'scTargetKwh', 'scChargeForMin', 'scPowerCapKw',
+    'driveTimeMin', 'driveConsumptionKwh', 'scName', 'scPowerCapKw',
   ];
   var SITE_FIELD_IDS = [
     'genEnabled', 'genPowerKw', 'genFuelType', 'fuelBurnGalPerHr',
@@ -1135,11 +1124,6 @@ var UI = (function () {
       set:function(o,v){ o.scName = String(v == null ? '' : v); } },
     { g:'Track', sub:'Offsite', id:'driveTimeMin', label:'One-way drive time', unit:'min', step:1, default:30, min:1, set:num('driveTimeMin') },
     { g:'Track', sub:'Offsite', id:'driveConsumptionKwh', label:'One-way cost', unit:'kWh', step:0.5, default:14, min:0, set:num('driveConsumptionKwh') },
-    { g:'Track', sub:'Offsite', id:'scStopMode', label:'Charge stop', kind:'select', default:'till',
-      options:[{ value:'till', label:'Charge till' }, { value:'for', label:'Charge for' }],
-      set:function(o,v){ o.scStopMode = (v === 'for') ? 'for' : 'till'; } },
-    { g:'Track', sub:'Offsite', id:'scTargetKwh', label:'Charge till', unit:'kWh', step:1, default:100, min:1, set:num('scTargetKwh') },
-    { g:'Track', sub:'Offsite', id:'scChargeForMin', label:'Charge for', unit:'min', step:1, default:30, min:1, set:num('scChargeForMin') },
     { g:'Track', sub:'Offsite', id:'scPowerCapKw', label:'Offsite charger power', unit:'kW', step:5, default:250, min:1, set:num('scPowerCapKw') },
 
     { g:'Site Charging', sub:'Generator', id:'genEnabled', label:'Generator', kind:'check', default:true, subEnable:true,
@@ -2751,20 +2735,6 @@ var UI = (function () {
     return v;
   }
 
-  function syncOffsiteStopMode() {
-    var modeEl = document.getElementById('scStopMode');
-    var tillEl = document.getElementById('scTargetKwh');
-    var forEl = document.getElementById('scChargeForMin');
-    if (!modeEl || !tillEl || !forEl) return;
-    var isFor = modeEl.value === 'for';
-    // Show only the active stop condition; keep the other value in the form for switching back.
-    var tillFld = tillEl.closest('.fld');
-    var forFld = forEl.closest('.fld');
-    if (tillFld) tillFld.hidden = isFor;
-    if (forFld) forFld.hidden = !isFor;
-    tillEl.disabled = isFor;
-    forEl.disabled = !isFor;
-  }
   function syncCapacityLimit(opts) {
     opts = opts || {};
     var vehicleEl = document.getElementById('chargeCurveId');
@@ -3351,7 +3321,6 @@ var UI = (function () {
   }
 
   function render() {
-    syncOffsiteStopMode();
     syncCapacityLimit();
     syncVehicleSelectWidth();
     drawChargeCurveChart();
