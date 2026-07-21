@@ -139,8 +139,10 @@ test('defaultParams: portable gen+battery on, grid EV connector off', () => {
   assert.equal(src.grid, false);
 });
 
-test('siteSources: grid EV connector excludes gen and battery', () => {
-  var src = Sim.siteSources({ gridEnabled: true, genEnabled: true, batteryEnabled: true });
+test('siteSources: onsite grid excludes portable panel (gen and battery)', () => {
+  var src = Sim.siteSources({
+    gridEnabled: true, siteChargingEnabled: true, genEnabled: true, batteryEnabled: true,
+  });
   assert.equal(src.grid, true);
   assert.equal(src.gen, false);
   assert.equal(src.battery, false);

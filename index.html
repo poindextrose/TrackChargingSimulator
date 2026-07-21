@@ -50,6 +50,39 @@
   .track-panel {
     margin-top:8px; padding:10px 12px; border:1px solid var(--line); border-radius:8px;
   }
+  /* Onsite ↔ Portable: shared radio spine outside panel borders */
+  .track-source-choice {
+    margin-top:10px; padding:8px 0 4px 0;
+    border-left:2px solid #4b5563; border-radius:0;
+  }
+  .track-source-choice-label {
+    margin:0 0 6px 12px; font-size:10px; font-weight:650; text-transform:uppercase;
+    letter-spacing:.05em; color:var(--mut);
+  }
+  .track-source-option {
+    display:grid; grid-template-columns:1.75rem 1fr; gap:0 8px;
+    align-items:start; margin:0 0 8px 0; padding:0 0 0 6px;
+  }
+  .track-source-option:last-of-type { margin-bottom:0; }
+  .track-source-radio {
+    display:flex; align-items:center; justify-content:center;
+    margin:0; padding-top:12px; cursor:pointer; user-select:none;
+  }
+  .track-source-radio input {
+    margin:0; width:1rem; height:1rem; accent-color:var(--accent); cursor:pointer;
+  }
+  .track-source-option .track-panel {
+    margin-top:0; min-width:0;
+  }
+  .track-source-option.is-selected .track-source-radio { filter:none; opacity:1; }
+  .track-source-option:not(.is-selected) .track-source-radio { opacity:.55; }
+  .track-panel.track-none {
+    border-left:3px solid #6b7280; background:rgba(107,114,128,.08);
+  }
+  .track-panel.track-none .panel-title { margin-bottom:0; }
+  .track-panel.track-none .track-panel-body {
+    margin-top:4px; font-size:11.5px; color:var(--mut); line-height:1.35;
+  }
   .track-panel.track-onsite {
     border-left:3px solid #a78bfa; background:rgba(167,139,250,.06);
   }
@@ -74,7 +107,7 @@
     color:var(--txt); user-select:none;
   }
   .track-panel .panel-enable input { margin:0; width:auto; accent-color:var(--accent); cursor:pointer; }
-  /* Disabled panels: mute accent + grey body; enable checkbox stays clickable */
+  /* Disabled panels: mute accent + grey body (radios stay outside / clickable) */
   .track-panel.is-off {
     border-left-color: #3a4150 !important;
     background: rgba(0,0,0,.14) !important;
@@ -84,6 +117,9 @@
   }
   .track-panel.is-off .section-head {
     opacity:.38; filter:grayscale(.65); pointer-events:none;
+  }
+  .track-panel.is-off > .panel-title {
+    color:#5c6370; opacity:.72;
   }
   .track-panel.is-off > .panel-enable {
     color:#5c6370; opacity:.72; pointer-events:auto; filter:none;
@@ -648,16 +684,16 @@ var Sim = (function () {
 
   /**
    * Effective charge sources at the track.
-   * Onsite (grid EV connector) is track-owned and independent of portable enable.
-   * Portable gen/battery are gated by siteChargingEnabled; exclusive of onsite when both would be on.
+   * Onsite (grid) and portable panel are exclusive: onsite wins if both are somehow set.
+   * Portable gen/battery only apply when the portable panel is on.
    */
   function siteSources(p) {
     var grid = !!(p && p.gridEnabled);
-    var portableOn = !(p && p.siteChargingEnabled === false);
+    var portableOn = !grid && !(p && p.siteChargingEnabled === false);
     return {
       grid: grid,
-      gen: !grid && portableOn && !!(p && p.genEnabled),
-      battery: !grid && portableOn && !!(p && p.batteryEnabled),
+      gen: portableOn && !!(p && p.genEnabled),
+      battery: portableOn && !!(p && p.batteryEnabled),
     };
   }
   /** True when any onsite or portable source can deliver energy to the car. */
@@ -1347,12 +1383,11 @@ var UI = (function () {
     out.sessions = sessionsToEngine(values.sessions);
     out.siteChargingEnabled = values.siteChargingEnabled !== false && values.siteChargingEnabled !== 'false';
     out.offsiteChargingEnabled = values.offsiteChargingEnabled !== false && values.offsiteChargingEnabled !== 'false';
-    // Onsite EV connector is exclusive of portable gen/battery when both would be on
+    // Onsite and portable panels are exclusive — onsite wins
     if (out.gridEnabled) {
-      out.genEnabled = false;
-      out.batteryEnabled = false;
+      out.siteChargingEnabled = false;
     }
-    // Portable panel off only disables gen/battery — onsite is independent (track-owned)
+    // Portable panel off disables gen/battery for the sim (checkboxes keep their values in the form)
     if (!out.siteChargingEnabled) {
       out.genEnabled = false;
       out.batteryEnabled = false;
@@ -1967,11 +2002,14 @@ var UI = (function () {
     //    setSessionsForm uses siteChargingAvailableFromDom(); if site charging is still
     //    off from the previous track, "onsite" gaps are demoted to "none" and stick.
     applyFieldValues(vals, fieldIdsFor('track'));
-    // 2. Restore site/offsite enables and linked site profile first.
+    // 2. Restore at-track source (radio) + offsite enable and linked site profile first.
     var se = document.getElementById('siteChargingEnabled');
+    var ge = document.getElementById('gridEnabled');
     var oe = document.getElementById('offsiteChargingEnabled');
     if (se) se.checked = vals.siteChargingEnabled !== false && vals.siteChargingEnabled !== 'false';
+    if (ge) ge.checked = vals.gridEnabled === true || vals.gridEnabled === 'true';
     if (oe) oe.checked = vals.offsiteChargingEnabled !== false && vals.offsiteChargingEnabled !== 'false';
+    if (ge && se && ge.checked && se.checked) se.checked = false;
     syncTrackPanelEnables();
     var siteId = vals.siteProfileId;
     var siteList = listFor('site');
@@ -1986,16 +2024,50 @@ var UI = (function () {
     setSessionsForm(vals.sessions || UI.defaultSessionsForm());
     refreshProfileUI();
   }
+  /** Map hidden gridEnabled / siteChargingEnabled → radio selection. */
+  function syncAtTrackRadiosFromFlags() {
+    var se = document.getElementById('siteChargingEnabled');
+    var ge = document.getElementById('gridEnabled');
+    var onsite = !!(ge && ge.checked);
+    var portable = !!(se && se.checked);
+    // Onsite wins if both were somehow on
+    var mode = onsite ? 'onsite' : (portable ? 'portable' : 'none');
+    var rOn = document.getElementById('atTrackOnsite');
+    var rPort = document.getElementById('atTrackPortable');
+    var rNone = document.getElementById('atTrackNone');
+    if (rOn) rOn.checked = mode === 'onsite';
+    if (rPort) rPort.checked = mode === 'portable';
+    if (rNone) rNone.checked = mode === 'none';
+    document.querySelectorAll('.track-source-option').forEach(function (opt) {
+      opt.classList.toggle('is-selected', opt.getAttribute('data-source') === mode);
+    });
+  }
+  /** Apply radio choice → hidden flags (exclusive). */
+  function applyAtTrackRadio(mode) {
+    var se = document.getElementById('siteChargingEnabled');
+    var ge = document.getElementById('gridEnabled');
+    if (ge) ge.checked = mode === 'onsite';
+    if (se) se.checked = mode === 'portable';
+    syncAtTrackRadiosFromFlags();
+  }
+  function atTrackModeFromDom() {
+    var r = document.querySelector('input[name="atTrackCharge"]:checked');
+    return r ? r.value : 'none';
+  }
   function syncTrackPanelEnables() {
+    syncAtTrackRadiosFromFlags();
     var se = document.getElementById('siteChargingEnabled');
     var oe = document.getElementById('offsiteChargingEnabled');
     var ge = document.getElementById('gridEnabled');
+    var mode = (ge && ge.checked) ? 'onsite' : ((se && se.checked) ? 'portable' : 'none');
     var portPanel = document.querySelector('.track-panel.track-portable');
     var offPanel = document.querySelector('.track-panel.track-offsite');
     var onPanel = document.querySelector('.track-panel.track-onsite');
+    var nonePanel = document.querySelector('.track-panel.track-none');
     if (portPanel && se) portPanel.classList.toggle('is-off', !se.checked);
     if (offPanel && oe) offPanel.classList.toggle('is-off', !oe.checked);
     if (onPanel && ge) onPanel.classList.toggle('is-off', !ge.checked);
+    if (nonePanel) nonePanel.classList.toggle('is-off', mode !== 'none');
     // Grey/disabled styling is CSS (.is-off). Also block focus on body controls when off.
     document.querySelectorAll('.track-panel').forEach(function (panel) {
       var off = panel.classList.contains('is-off');
@@ -2040,21 +2112,18 @@ var UI = (function () {
     }
     var gen = document.getElementById('genEnabled');
     var bat = document.getElementById('batteryEnabled');
-    var grid = document.getElementById('gridEnabled');
     var portPanel = document.getElementById('siteChargingEnabled');
     if (!gen || !bat) return;
-    // Portable panel master off, or onsite exclusive → grey gen/battery field bodies
+    // Whole portable panel greys via track-panel.is-off; sub-sections follow gen/battery enables
     var portablePanelOn = !portPanel || portPanel.checked;
-    var portableAllowed = portablePanelOn && (!grid || !grid.checked);
-    setSubOn('Generator', portableAllowed && gen.checked);
-    setSubOn('Battery', portableAllowed && bat.checked);
-    // Enable checkboxes stay clickable while portable panel is on (can reclaim from onsite)
+    setSubOn('Generator', portablePanelOn && gen.checked);
+    setSubOn('Battery', portablePanelOn && bat.checked);
     setControlDisabled(gen, !portablePanelOn);
     setControlDisabled(bat, !portablePanelOn);
     // AC-DC is the gen→battery bus rectifier: only editable when both are on
     var acdc = document.getElementById('acdcEffPct');
     if (acdc) {
-      var both = portableAllowed && gen.checked && bat.checked;
+      var both = portablePanelOn && gen.checked && bat.checked;
       setControlDisabled(acdc, !both);
       var fld = acdc.closest('.fld');
       if (fld) fld.classList.toggle('is-disabled', !both);
@@ -2062,7 +2131,7 @@ var UI = (function () {
     // Towing only when bringing portable gen and/or battery; show 0 while disabled
     var tow = document.getElementById('towingCostKwh');
     if (tow) {
-      var portable = portableAllowed && (gen.checked || bat.checked);
+      var portable = portablePanelOn && (gen.checked || bat.checked);
       if (!portable) {
         if (tow.dataset.savedTow == null) tow.dataset.savedTow = tow.value;
         tow.value = '0';
@@ -2075,30 +2144,22 @@ var UI = (function () {
       if (towFld) towFld.classList.toggle('is-disabled', !portable);
     }
   }
-  function applySiteSourceExclusivity(changedId) {
-    var gen = document.getElementById('genEnabled');
-    var bat = document.getElementById('batteryEnabled');
+  /** Keep onsite/portable exclusive via radio-backed flags. */
+  function applySiteSourceExclusivity(/* changedId */) {
     var grid = document.getElementById('gridEnabled');
-    if (!gen || !bat || !grid) return;
-    if (changedId === 'gridEnabled' && grid.checked) {
-      gen.checked = false;
-      bat.checked = false;
-    } else if ((changedId === 'genEnabled' || changedId === 'batteryEnabled') &&
-               (gen.checked || bat.checked) && grid.checked) {
-      grid.checked = false;
-    }
+    var port = document.getElementById('siteChargingEnabled');
+    if (!grid || !port) return;
+    if (grid.checked && port.checked) port.checked = false;
+    syncAtTrackRadiosFromFlags();
     syncSiteSourceUI();
   }
   function normalizeSiteSourceCheckboxes() {
-    var gen = document.getElementById('genEnabled');
-    var bat = document.getElementById('batteryEnabled');
     var grid = document.getElementById('gridEnabled');
-    if (!gen || !bat || !grid) return;
-    // Prefer grid if both modes were somehow enabled together
-    if (grid.checked && (gen.checked || bat.checked)) {
-      gen.checked = false;
-      bat.checked = false;
-    }
+    var port = document.getElementById('siteChargingEnabled');
+    if (!grid || !port) return;
+    // Prefer onsite if both panels were somehow enabled together
+    if (grid.checked && port.checked) port.checked = false;
+    syncAtTrackRadiosFromFlags();
     syncSiteSourceUI();
   }
   function profileValuesFromForm(kind) {
@@ -2810,10 +2871,10 @@ var UI = (function () {
     block.classList.add('sess-flash');
     setTimeout(function () { block.classList.remove('sess-flash'); }, 2000);
   }
-  /** When site charging is re-enabled, convert "No charging" gaps to Charge onsite. */
+  /** When at-track charging becomes available, convert "No charging" gaps to Charge onsite. */
   function autoConvertNoneGapsToOnsite() {
-    var se = document.getElementById('siteChargingEnabled');
-    if (se && !se.checked) return false;
+    // Onsite (grid) or portable panel — either can host "Charge onsite" gaps
+    if (!siteChargingAvailableFromDom()) return false;
     var form = UI.normalizeSessionsForm(readSessionsFormRaw());
     var changed = false;
     form.forEach(function (row) {
@@ -3138,21 +3199,14 @@ var UI = (function () {
       }
 
       if (g === 'Track') {
-        // Order: arrival/main → Onsite → Portable (profiles) → Offsite → Track Sessions
+        // Order: arrival/main → Onsite/Portable (radio pair) → Offsite → Track Sessions
+        var onBody = [];
+        var onEnableDefault = false;
         if (subs.Onsite) {
-          var onBody = [];
-          var onEnableDefault = false;
           subs.Onsite.forEach(function (f) {
             if (f.subEnable) onEnableDefault = !!f.default;
             else onBody.push(f);
           });
-          html += '<div class="track-panel track-onsite" data-section-embed="onsite">' +
-            '<label class="panel-enable" for="gridEnabled">' +
-              '<input type="checkbox" id="gridEnabled"' + (onEnableDefault ? ' checked' : '') +
-              '> Onsite Charging' +
-            '</label>' +
-            '<div class="track-panel-body">' + fieldsHtml(onBody) + '</div>' +
-          '</div>';
         }
         var portList = groups['Portable Charging'] || [];
         var portSubs = {};
@@ -3161,7 +3215,6 @@ var UI = (function () {
           (portSubs[f.sub] = portSubs[f.sub] || []).push(f);
         });
         var portBody = '';
-        // Stable order: Generator then Battery
         ['Generator', 'Battery'].forEach(function (name) {
           if (portSubs[name]) portBody += subSectionHtml(name, portSubs[name]);
         });
@@ -3169,13 +3222,49 @@ var UI = (function () {
           if (name === 'Generator' || name === 'Battery') return;
           portBody += subSectionHtml(name, portSubs[name]);
         });
-        html += '<div class="track-panel track-portable" data-section-embed="site">' +
-          '<label class="panel-enable" for="siteChargingEnabled">' +
-            '<input type="checkbox" id="siteChargingEnabled" checked> Portable Charging' +
-          '</label>' +
-          '<div class="track-panel-body">' +
-            sectionHeadHtml('site', 'Profile') +
-            portBody +
+        // Radio spine outside panel borders: None | Onsite | Portable (exclusive).
+        // Default = portable (matches track defaults); onsite field default is off.
+        var atTrackDefault = onEnableDefault ? 'onsite' : 'portable';
+        html += '<div class="track-source-choice" role="group" aria-label="At-track charging source">' +
+          '<div class="track-source-choice-label">At-track charging (pick one)</div>' +
+          // Hidden mirrors still drive UI_FIELDS / track flags
+          '<input type="checkbox" id="gridEnabled"' + (atTrackDefault === 'onsite' ? ' checked' : '') +
+            ' hidden aria-hidden="true" tabindex="-1">' +
+          '<input type="checkbox" id="siteChargingEnabled"' + (atTrackDefault === 'portable' ? ' checked' : '') +
+            ' hidden aria-hidden="true" tabindex="-1">' +
+          '<div class="track-source-option" data-source="none">' +
+            '<label class="track-source-radio" title="No at-track charging">' +
+              '<input type="radio" name="atTrackCharge" id="atTrackNone" value="none"' +
+                (atTrackDefault === 'none' ? ' checked' : '') + ' aria-label="None">' +
+            '</label>' +
+            '<div class="track-panel track-none" data-section-embed="none">' +
+              '<div class="panel-title">None</div>' +
+              '<div class="track-panel-body">No onsite or portable charging at the track. ' +
+                'Use offsite trips or session reserves only.</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="track-source-option" data-source="onsite">' +
+            '<label class="track-source-radio" title="Onsite charging">' +
+              '<input type="radio" name="atTrackCharge" id="atTrackOnsite" value="onsite"' +
+                (atTrackDefault === 'onsite' ? ' checked' : '') + ' aria-label="Onsite Charging">' +
+            '</label>' +
+            '<div class="track-panel track-onsite" data-section-embed="onsite">' +
+              '<div class="panel-title">Onsite Charging</div>' +
+              '<div class="track-panel-body">' + fieldsHtml(onBody) + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="track-source-option" data-source="portable">' +
+            '<label class="track-source-radio" title="Portable charging">' +
+              '<input type="radio" name="atTrackCharge" id="atTrackPortable" value="portable"' +
+                (atTrackDefault === 'portable' ? ' checked' : '') + ' aria-label="Portable Charging">' +
+            '</label>' +
+            '<div class="track-panel track-portable" data-section-embed="site">' +
+              '<div class="panel-title">Portable Charging</div>' +
+              '<div class="track-panel-body">' +
+                sectionHeadHtml('site', 'Profile') +
+                portBody +
+              '</div>' +
+            '</div>' +
           '</div>' +
         '</div>';
         if (subs.Offsite) {
@@ -3276,50 +3365,65 @@ var UI = (function () {
     var trEn = UI.findProfile(listFor('track'), activeIdFor('track'));
     if (trEn && trEn.values) {
       var se0 = document.getElementById('siteChargingEnabled');
+      var ge0 = document.getElementById('gridEnabled');
       var oe0 = document.getElementById('offsiteChargingEnabled');
       if (se0) se0.checked = trEn.values.siteChargingEnabled !== false && trEn.values.siteChargingEnabled !== 'false';
+      if (ge0) ge0.checked = trEn.values.gridEnabled === true || trEn.values.gridEnabled === 'true';
       if (oe0) oe0.checked = trEn.values.offsiteChargingEnabled !== false && trEn.values.offsiteChargingEnabled !== 'false';
+      if (ge0 && se0 && ge0.checked && se0.checked) se0.checked = false;
     }
     syncTrackPanelEnables();
     refreshProfileUI();
+
+    function onAtTrackSourceChange() {
+      var mode = atTrackModeFromDom();
+      var turningOnOnsite = mode === 'onsite';
+      var turningOnPortable = mode === 'portable';
+      applyAtTrackRadio(mode);
+      syncTrackPanelEnables();
+      syncSiteSourceUI();
+      // Do not auto-save into the track profile — leave it dirty so Save / Save as appear.
+      setSessionsForm(readSessionsFormRaw());
+      // None → onsite/portable: promote "No charging" gaps to Charge onsite
+      if (turningOnOnsite || turningOnPortable) autoConvertNoneGapsToOnsite();
+      render();
+    }
+    document.querySelectorAll('input[name="atTrackCharge"]').forEach(function (r) {
+      r.addEventListener('change', onAtTrackSourceChange);
+    });
+    // Clicking a greyed panel selects that radio source
+    document.querySelectorAll('.track-source-option').forEach(function (opt) {
+      opt.addEventListener('click', function (e) {
+        if (e.target.closest('input, select, button, label, a')) return;
+        var mode = opt.getAttribute('data-source');
+        var radioId = mode === 'onsite' ? 'atTrackOnsite'
+          : (mode === 'portable' ? 'atTrackPortable' : 'atTrackNone');
+        var radio = document.getElementById(radioId);
+        if (!radio || radio.checked) return;
+        radio.checked = true;
+        onAtTrackSourceChange();
+      });
+    });
 
     function wirePanelEnable(id) {
       var el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('change', function () {
         var turningOnOffsite = (id === 'offsiteChargingEnabled' && el.checked);
-        var turningOnSite = (id === 'siteChargingEnabled' && el.checked);
         syncTrackPanelEnables();
-        // Persist enable flags onto the active track profile association fields
-        var trackList = listFor('track');
-        var track = UI.findProfile(trackList, activeIdFor('track'));
-        if (track) {
-          var values = Object.assign({}, track.values || {}, {
-            siteChargingEnabled: !document.getElementById('siteChargingEnabled') ||
-              document.getElementById('siteChargingEnabled').checked,
-            offsiteChargingEnabled: !document.getElementById('offsiteChargingEnabled') ||
-              document.getElementById('offsiteChargingEnabled').checked,
-          });
-          setList('track', UI.upsertProfile(trackList, {
-            id: track.id, name: track.name, builtin: !!track.builtin, values: values,
-          }));
-          saveProfiles(profileState);
-        }
-        // Rebuild session gap selects (onsite/offsite options appear/disappear)
+        // Leave track dirty (do not auto-write profile) so Save / Save as appear.
         setSessionsForm(readSessionsFormRaw());
-        // Re-enabling site: restore No charging → Charge onsite
-        if (turningOnSite) autoConvertNoneGapsToOnsite();
-        // Re-enabling offsite: auto-add offsite before sessions that would go red
         if (turningOnOffsite) autoInsertOffsiteBeforeRedSessions();
         render();
       });
     }
-    wirePanelEnable('siteChargingEnabled');
     wirePanelEnable('offsiteChargingEnabled');
 
     UI.UI_FIELDS.forEach(function (f) {
       var el = document.getElementById(f.id);
       if (!el) return;
+      // gridEnabled is a hidden mirror driven by at-track radios
+      if (f.id === 'gridEnabled') return;
       if (f.id === 'chargeCurveId') {
         el.addEventListener('change', function () {
           // Switching vehicle type: snap capacity to that model's new-pack max.
@@ -3332,13 +3436,10 @@ var UI = (function () {
       }
       var ev = (f.kind === 'check' || f.kind === 'select') ? 'change' : 'input';
       el.addEventListener(ev, function () {
-        if (f.id === 'genEnabled' || f.id === 'batteryEnabled' || f.id === 'gridEnabled') {
-          var turningOnOnsite = (f.id === 'gridEnabled' && el.checked);
-          applySiteSourceExclusivity(f.id);
+        if (f.id === 'genEnabled' || f.id === 'batteryEnabled') {
+          syncSiteSourceUI();
           syncTrackPanelEnables();
-          // Gap dropdown options depend on onsite/portable availability
           setSessionsForm(readSessionsFormRaw());
-          if (turningOnOnsite) autoConvertNoneGapsToOnsite();
         }
         render();
       });
