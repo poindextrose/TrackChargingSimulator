@@ -2533,6 +2533,69 @@ var UI = (function () {
     block.classList.add('sess-flash');
     setTimeout(function () { block.classList.remove('sess-flash'); }, 2000);
   }
+  /**
+   * When offsite charging is turned back on, find enabled sessions that would go
+   * below the session-end reserve (red SoC) and set Charge offsite on the previous
+   * enabled session (the gap before the red session). Uses "until next session".
+   */
+  function autoInsertOffsiteBeforeRedSessions() {
+    if (typeof Sim === 'undefined') return false;
+    var oe = document.getElementById('offsiteChargingEnabled');
+    if (oe && !oe.checked) return false;
+
+    function sessionGoesRed(result, sess, p) {
+      var reserve = p.sessionEndReserveKwh;
+      if (!(reserve > 0) || !(p.capacityKwh > 0)) return false;
+      var tl = result.timeline;
+      if (!tl || !tl.length) return false;
+      var t0 = tl[0].min;
+      var minKwh = Infinity;
+      for (var t = sess.startMin; t < sess.endMin; t++) {
+        var i = t - t0;
+        if (i < 0 || i >= tl.length) continue;
+        var kwh = tl[i].carPct / 100 * p.capacityKwh;
+        if (kwh < minKwh) minKwh = kwh;
+      }
+      return isFinite(minKwh) && minKwh < reserve - 1e-9;
+    }
+
+    var changed = false;
+    var maxPasses = 10;
+    for (var pass = 0; pass < maxPasses; pass++) {
+      var form = UI.normalizeSessionsForm(readSessionsFormRaw());
+      var values = currentValues();
+      values.sessions = form;
+      values.offsiteChargingEnabled = true;
+      var p = UI.readParams(values);
+      p.offsiteChargingEnabled = true;
+      var result = Sim.simulate(p);
+      var sched = Sim.buildSchedule(p);
+      var patched = false;
+      for (var si = 0; si < sched.length; si++) {
+        var s = sched[si];
+        if (!s.enabled) continue;
+        if (!sessionGoesRed(result, s, p)) continue;
+        // Find previous enabled session — set its after to offsite (charge before red session)
+        var prev = si - 1;
+        while (prev >= 0 && !sched[prev].enabled) prev--;
+        if (prev < 0) continue; // nothing before first session
+        if (form[prev].after === 'offsite') continue; // already offsite
+        form[prev].after = 'offsite';
+        form[prev].offsiteStop = 'next';
+        form[prev].offsiteUntilSocPct = form[prev].offsiteUntilSocPct != null
+          ? form[prev].offsiteUntilSocPct : 80;
+        form[prev].offsiteForMin = form[prev].offsiteForMin != null
+          ? form[prev].offsiteForMin : 30;
+        patched = true;
+        changed = true;
+        break; // re-simulate after each insert
+      }
+      if (!patched) break;
+      setSessionsForm(form);
+    }
+    return changed;
+  }
+
   function setSessionsForm(list, opts) {
     var table = sessionTable();
     if (!table) return;
@@ -2911,6 +2974,7 @@ var UI = (function () {
       var el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('change', function () {
+        var turningOnOffsite = (id === 'offsiteChargingEnabled' && el.checked);
         syncTrackPanelEnables();
         // Persist enable flags onto the active track profile association fields
         var trackList = listFor('track');
@@ -2929,6 +2993,8 @@ var UI = (function () {
         }
         // Rebuild session gap selects (onsite/offsite options appear/disappear)
         setSessionsForm(readSessionsFormRaw());
+        // Re-enabling offsite: auto-add offsite before sessions that would go red
+        if (turningOnOffsite) autoInsertOffsiteBeforeRedSessions();
         render();
       });
     }
