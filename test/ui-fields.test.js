@@ -246,6 +246,8 @@ test('packExport / parseImport round-trip selected profiles', () => {
     id: 'car-custom', name: 'My EV', builtin: false,
     values: Object.assign(UI.fieldDefaults(UI.CAR_FIELD_IDS), { capacityKwh: '75' }),
   });
+  state.activeCarId = 'car-custom';
+  state.activeTrackId = UI.BUILTIN_TRACK_ID;
   const packed = UI.packExport(state, {
     cars: ['car-custom'],
     tracks: [UI.BUILTIN_TRACK_ID],
@@ -256,9 +258,45 @@ test('packExport / parseImport round-trip selected profiles', () => {
   assert.equal(packed.cars[0].name, 'My EV');
   assert.equal(packed.tracks.length, 1);
   assert.equal(packed.sites.length, 0);
+  assert.equal(packed.activeCarId, 'car-custom');
+  assert.equal(packed.activeCarName, 'My EV');
+  assert.equal(packed.activeTrackId, UI.BUILTIN_TRACK_ID);
+  assert.equal(packed.activeTrackName, 'Ridge Motorsports Park');
   const parsed = UI.parseImport(JSON.stringify(packed));
   assert.equal(parsed.cars[0].values.capacityKwh, '75');
   assert.equal(parsed.tracks[0].name, 'Ridge Motorsports Park');
+  assert.equal(parsed.activeCarName, 'My EV');
+  assert.equal(parsed.activeTrackName, 'Ridge Motorsports Park');
+});
+
+test('applyImport restores active car and track from export metadata', () => {
+  const UI = loadUI();
+  let state = UI.builtinProfiles();
+  const packed = UI.packExport(Object.assign({}, state, {
+    activeCarId: UI.BUILTIN_CAR_M3P_ID,
+    activeTrackId: UI.BUILTIN_TRACK_ID,
+  }), {
+    cars: [UI.BUILTIN_CAR_M3P_ID],
+    tracks: [UI.BUILTIN_TRACK_ID],
+    sites: [UI.BUILTIN_SITE_ID],
+  });
+  const parsed = UI.parseImport(JSON.stringify(packed));
+  // Fresh state with only builtins; import M3P + track and restore actives
+  const items = [
+    { kind: 'car', profile: parsed.cars[0] },
+    { kind: 'track', profile: parsed.tracks[0] },
+  ];
+  const r = UI.applyImport(state, items, {
+    'car:Tesla Model 3 Performance': 'replace',
+    'track:Ridge Motorsports Park': 'replace',
+  }, {
+    activeCarId: parsed.activeCarId,
+    activeCarName: parsed.activeCarName,
+    activeTrackId: parsed.activeTrackId,
+    activeTrackName: parsed.activeTrackName,
+  });
+  assert.equal(r.state.activeCarId, UI.BUILTIN_CAR_M3P_ID);
+  assert.equal(r.state.activeTrackId, UI.BUILTIN_TRACK_ID);
 });
 
 test('applyImport adds new, replaces, or duplicates with …import', () => {

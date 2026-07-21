@@ -1578,6 +1578,30 @@ var UI = (function () {
         };
       });
     });
+    // Remember which profiles were active at export (id + name for import remapping)
+    PROFILE_KINDS.forEach(function (kind) {
+      var m = PROFILE_META[kind];
+      var activeId = state[m.activeKey];
+      var active = findProfile(state[m.listKey] || [], activeId);
+      if (active) {
+        out[m.activeKey] = active.id;
+        out[m.activeKey.replace(/Id$/, 'Name')] = active.name;
+        // e.g. activeCarId + activeCarName
+      }
+    });
+    // Explicit name keys for clarity / older tooling
+    if (out.activeCarId != null) {
+      var ac = findProfile(state.cars || [], out.activeCarId);
+      if (ac) out.activeCarName = ac.name;
+    }
+    if (out.activeTrackId != null) {
+      var at = findProfile(state.tracks || [], out.activeTrackId);
+      if (at) out.activeTrackName = at.name;
+    }
+    if (out.activeSiteId != null) {
+      var as_ = findProfile(state.sites || [], out.activeSiteId);
+      if (as_) out.activeSiteName = as_.name;
+    }
     return out;
   }
   function parseImport(raw) {
@@ -1600,6 +1624,13 @@ var UI = (function () {
         };
       });
     });
+    // Carry active defaults from the file (resolved after applyImport by name/id)
+    if (data.activeCarId != null) normalized.activeCarId = String(data.activeCarId);
+    if (data.activeTrackId != null) normalized.activeTrackId = String(data.activeTrackId);
+    if (data.activeSiteId != null) normalized.activeSiteId = String(data.activeSiteId);
+    if (data.activeCarName != null) normalized.activeCarName = String(data.activeCarName);
+    if (data.activeTrackName != null) normalized.activeTrackName = String(data.activeTrackName);
+    if (data.activeSiteName != null) normalized.activeSiteName = String(data.activeSiteName);
     return normalized;
   }
   function findByName(list, name) {
@@ -1611,12 +1642,13 @@ var UI = (function () {
   function duplicateImportName(name) {
     return String(name) + ' …import';
   }
-  /** applyImport(state, items, decisions)
+  /** applyImport(state, items, decisions, actives)
    * items: [{ kind, profile }] selected from file
    * decisions: map "kind:name" → 'replace' | 'duplicate'  (only for conflicts)
+   * actives: optional { activeCarId/Name, activeTrackId/Name, activeSiteId/Name } from export
    * returns { state, summary: { added, replaced, duplicated } }
    */
-  function applyImport(state, items, decisions) {
+  function applyImport(state, items, decisions, actives) {
     var next = {
       cars: state.cars.slice(),
       tracks: state.tracks.slice(),
@@ -1626,10 +1658,13 @@ var UI = (function () {
       activeSiteId: state.activeSiteId,
     };
     var summary = { added: 0, replaced: 0, duplicated: 0 };
+    // Track final profile id/name per imported item for active remapping
+    var importedByKindName = {};
     items.forEach(function (item) {
       var kind = item.kind;
       var m = PROFILE_META[kind];
       var list = next[m.listKey];
+      var originalName = item.profile.name;
       var incoming = {
         id: newId(kind),
         name: item.profile.name,
@@ -1640,6 +1675,7 @@ var UI = (function () {
       if (!existing) {
         list.push(incoming);
         summary.added++;
+        importedByKindName[kind + ':' + originalName] = incoming;
         return;
       }
       var key = kind + ':' + incoming.name;
@@ -1650,6 +1686,7 @@ var UI = (function () {
         var idx = list.indexOf(existing);
         list[idx] = incoming;
         summary.replaced++;
+        importedByKindName[kind + ':' + originalName] = incoming;
       } else {
         incoming.name = duplicateImportName(incoming.name);
         // if "...import" also exists, keep appending
@@ -1660,8 +1697,28 @@ var UI = (function () {
         }
         list.push(incoming);
         summary.duplicated++;
+        importedByKindName[kind + ':' + originalName] = incoming;
       }
     });
+    // Restore active car / track / site from export metadata when resolvable
+    if (actives && typeof actives === 'object') {
+      PROFILE_KINDS.forEach(function (kind) {
+        var m = PROFILE_META[kind];
+        var idKey = m.activeKey; // activeCarId
+        var nameKey = idKey.replace(/Id$/, 'Name'); // activeCarName
+        var wantId = actives[idKey];
+        var wantName = actives[nameKey];
+        var list = next[m.listKey] || [];
+        var pick = null;
+        // Prefer the profile we just imported under the original name
+        if (wantName && importedByKindName[kind + ':' + wantName]) {
+          pick = importedByKindName[kind + ':' + wantName];
+        }
+        if (!pick && wantId) pick = findProfile(list, wantId);
+        if (!pick && wantName) pick = findByName(list, wantName);
+        if (pick) next[idKey] = pick.id;
+      });
+    }
     return { state: next, summary: summary };
   }
 
@@ -3451,10 +3508,24 @@ var UI = (function () {
           }
           items.push({ kind: it.kind, profile: prof });
         });
-        var result = UI.applyImport(profileState, items, decisions);
+        var actives = {
+          activeCarId: parsed.activeCarId,
+          activeCarName: parsed.activeCarName,
+          activeTrackId: parsed.activeTrackId,
+          activeTrackName: parsed.activeTrackName,
+          activeSiteId: parsed.activeSiteId,
+          activeSiteName: parsed.activeSiteName,
+        };
+        var result = UI.applyImport(profileState, items, decisions, actives);
         profileState = result.state;
         saveProfiles(profileState);
+        // Apply restored active car/track (and linked site) into the form
+        var car = UI.findProfile(listFor('car'), activeIdFor('car'));
+        if (car) applyProfileValues('car', car.values || {});
+        var track = UI.findProfile(listFor('track'), activeIdFor('track'));
+        if (track) applyTrackProfile(track);
         refreshProfileUI();
+        render();
         closeModal();
         var s = result.summary;
         window.alert(
