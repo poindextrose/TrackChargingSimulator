@@ -281,15 +281,16 @@
                      table-layout:auto; }
   table.sess-table col.c-start { width:5.75rem; }
   table.sess-table col.c-act { width:auto; }
+  table.sess-table col.c-end { width:5.75rem; }
   table.sess-table col.c-for { width:4.25rem; }
   table.sess-table col.c-soc { width:6.5rem; }
   table.sess-table col.c-trl { width:6.5rem; }
   /* Hide Trailer SoC when site battery is off (no trailer in the model) */
   table.sess-table.no-trailer col.c-trl,
-  table.sess-table.no-trailer th:nth-child(5),
-  table.sess-table.no-trailer td:nth-child(5) { display:none; }
+  table.sess-table.no-trailer th:nth-child(6),
+  table.sess-table.no-trailer td:nth-child(6) { display:none; }
   table.sess-table col.c-actn { width:2.25rem; }
-  /* Activity column must grow for offsite stop controls (not clip into For / SoC) */
+  /* Activity column must grow for offsite stop controls (not clip into End / For / SoC) */
   table.sess-table th:nth-child(2),
   table.sess-table td:nth-child(2) {
     padding-right:14px; max-width:none; overflow:visible;
@@ -309,23 +310,43 @@
   table.sess-table tr.sess-charge-row td.ch-act {
     display:flex; flex-direction:column; align-items:flex-start; gap:4px;
   }
-  /* Intermediate (drive / charge / wait): smaller, normal weight; center computed start times */
+  /* Intermediate (drive / charge / wait): smaller, normal weight; center computed start/end times */
   table.sess-table tr.sess-drive td:first-child,
   table.sess-table tr.sess-charge-row td:first-child,
-  table.sess-table tr.sess-wait-row td:first-child { text-align:center; }
+  table.sess-table tr.sess-wait-row td:first-child,
+  table.sess-table tr.sess-drive td:nth-child(3),
+  table.sess-table tr.sess-charge-row td:nth-child(3),
+  table.sess-table tr.sess-wait-row td:nth-child(3) { text-align:center; }
   table.sess-table tr.sess-drive td { color:#eab308; font-size:11.5px; font-weight:400; }
   table.sess-table tr.sess-charge-row td,
   table.sess-table tr.sess-wait-row td { font-size:11.5px; font-weight:400; color:var(--mut); }
   table.sess-table tr.sess-charge-row td.sess-act { color:var(--txt); }
   table.sess-table tr.sess-sc td .ch-start,
+  table.sess-table tr.sess-sc td .ch-end,
   table.sess-table tr.sess-sc td.sess-num { color:#22c55e; }
-  table.sess-table tr.sess-charge-row td.ch-start { font-variant-numeric:tabular-nums; }
+  table.sess-table tr.sess-charge-row td.ch-start,
+  table.sess-table tr.sess-charge-row td.ch-end { font-variant-numeric:tabular-nums; }
   /* Primary session rows: larger + bold */
   table.sess-table tr.sess-edit-row td { border-bottom-color:#3a4150; font-size:13.5px;
                                           font-weight:650; color:var(--txt); }
   table.sess-table tr.sess-edit-row td.sess-mut { color:var(--mut); font-weight:600; }
   table.sess-table tr.sess-missed td { color:var(--mut); }
+  table.sess-table tr.sess-partial td.sess-mut { color:var(--accent); font-weight:650; }
+  .sess-toast {
+    position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(12px);
+    max-width:min(420px, 92vw); padding:10px 16px; border-radius:8px; z-index:200;
+    background:#1c2230; border:1px solid var(--line); color:var(--txt); font-size:13px;
+    box-shadow:0 8px 24px rgba(0,0,0,.5); opacity:0; pointer-events:none;
+    transition:opacity .2s ease, transform .2s ease;
+  }
+  .sess-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
   table.sess-table tr.sess-disabled td { color:var(--mut); font-weight:600; }
+  /* Skipped / Missed Session label: dimmer than body muted text */
+  table.sess-table tr.sess-edit-row.sess-disabled td.sess-act,
+  table.sess-table tr.sess-edit-row.sess-disabled .sess-act-label {
+    color: #5c6573;
+    font-weight: 500;
+  }
   table.sess-table tr[hidden] { display:none; }
   table.sess-table .sess-act { color:var(--txt); }
   table.sess-table .sess-enable-label {
@@ -334,11 +355,13 @@
   table.sess-table .sess-enable-label input { margin:0; width:auto; accent-color:var(--accent); cursor:pointer; }
   table.sess-table .sess-mut { color:var(--mut); }
   table.sess-table .sess-bad { color:var(--bad); }
-  /* Centered SoC ranges: "83% → 48%" — green charge, yellow discharge */
-  table.sess-table th:nth-child(4),
+  /* Centered End + SoC ranges: "83% → 48%" — green charge, yellow discharge */
+  table.sess-table th:nth-child(3),
+  table.sess-table td:nth-child(3),
   table.sess-table th:nth-child(5),
-  table.sess-table td:nth-child(4),
-  table.sess-table td:nth-child(5) { text-align: center; }
+  table.sess-table th:nth-child(6),
+  table.sess-table td:nth-child(5),
+  table.sess-table td:nth-child(6) { text-align: center; }
   table.sess-table .soc-range {
     display: inline;
     font-variant-numeric: tabular-nums;
@@ -825,6 +848,208 @@ var Sim = (function () {
     return sessions;
   }
 
+  /**
+   * DaySM — day activity state machine.
+   *
+   * Trip phases (while away from track): idle → out → sc → back → idle
+   * Timeline modes: SESSION | CHARGE | IDLE | DRIVE | SC
+   *
+   * Priority when resolving activity for a minute (first match wins):
+   *   1. Trip active (out/sc/back) → DRIVE or SC  [never SESSION/CHARGE at track]
+   *   2. Enabled session body → SESSION
+   *   3. Residual paddock after offsite return → CHARGE if site can, else IDLE
+   *   4. Gap mode at t: onsite → CHARGE; none → IDLE;
+   *      offsite while idle at track → CHARGE if site can else IDLE
+   *      (real offsite is handled by the trip machine, not gap mode alone)
+   *
+   * Allowed trip transitions: idle→out, out→sc, sc→back, back→idle
+   * (same-phase stay is always allowed while the leg is in progress)
+   */
+  var DaySM = {
+    PHASES: ['idle', 'out', 'sc', 'back'],
+    MODES: ['SESSION', 'CHARGE', 'IDLE', 'DRIVE', 'SC'],
+    TRIP_TRANSITIONS: {
+      idle: { idle: true, out: true },
+      out:  { out: true, sc: true },
+      sc:   { sc: true, back: true },
+      back: { back: true, idle: true },
+    },
+    canTransitionTrip: function (from, to) {
+      var row = DaySM.TRIP_TRANSITIONS[from];
+      return !!(row && row[to]);
+    },
+    /** Timeline mode for an active trip phase, or null when idle at track. */
+    modeFromTripPhase: function (phase) {
+      if (phase === 'out' || phase === 'back') return 'DRIVE';
+      if (phase === 'sc') return 'SC';
+      return null;
+    },
+    /**
+     * Effective paddock gap mode after residual / offsite-at-track coercion.
+     * @returns {'onsite'|'none'}
+     */
+    effectivePaddockMode: function (o) {
+      var g = o.gapMode;
+      // Offsite gap while idle at track: trip owns real offsite; here act as onsite or none
+      if (g === 'offsite') g = o.canCharge ? 'onsite' : 'none';
+      // Residual after return: force onsite when site power exists (even if row is "none")
+      if (o.residualActive && o.canCharge) g = 'onsite';
+      if (g === 'onsite') return 'onsite';
+      return 'none';
+    },
+    /**
+     * Resolve paddock activity when not on a trip.
+     * Priority: SESSION > residual/gap CHARGE > IDLE.
+     * @param {{inSession:boolean, residualActive:boolean, canCharge:boolean, gapMode:string}} o
+     * @returns {'SESSION'|'CHARGE'|'IDLE'}
+     */
+    resolveActivityState: function (o) {
+      if (o.inSession) return 'SESSION';
+      var g = DaySM.effectivePaddockMode(o);
+      return g === 'onsite' ? 'CHARGE' : 'IDLE';
+    },
+    /** True when residual paddock window is open at minute t. */
+    residualActiveAt: function (t, lastReturnMin, residualUntilMin) {
+      return lastReturnMin != null && residualUntilMin != null &&
+        t >= lastReturnMin && t < residualUntilMin;
+    },
+    /**
+     * Cap residual charge window: next enabled session start, but not past a
+     * queued follow-on offsite departure.
+     */
+    residualUntilAfterReturn: function (returnMin, sessions, lastSessionEnd, nextOffsiteGapStart) {
+      var resUntil = lastSessionEnd;
+      for (var ri = 0; ri < sessions.length; ri++) {
+        if (sessions[ri].enabled && sessions[ri].startMin >= returnMin) {
+          resUntil = sessions[ri].startMin;
+          break;
+        }
+      }
+      if (nextOffsiteGapStart != null) {
+        if (nextOffsiteGapStart <= returnMin) resUntil = returnMin;
+        else if (nextOffsiteGapStart < resUntil) resUntil = nextOffsiteGapStart;
+      }
+      return resUntil;
+    },
+    /**
+     * Whether the supercharger stop is complete after this minute.
+     * @param {{t, scStartMin, eCar, cap, stopMode, untilSocPct, forMin, mustReturnBy, driveTimeMin, endMin}} o
+     */
+    scDone: function (o) {
+      var stopMode = o.stopMode || 'next';
+      var targetKwh = o.cap;
+      if (stopMode === 'until') {
+        var socT = o.untilSocPct != null ? o.untilSocPct : 80;
+        targetKwh = Math.min(o.cap, (socT / 100) * o.cap);
+      }
+      var done = o.eCar >= o.cap - 1e-9;
+      if (stopMode === 'for') {
+        var dwell = o.forMin > 0 ? o.forMin : 30;
+        done = done || ((o.t + 1 - o.scStartMin) >= dwell);
+      } else if (stopMode === 'until') {
+        done = done || (o.eCar >= targetKwh - 1e-9);
+      } else {
+        var leaveBy = (o.mustReturnBy != null ? o.mustReturnBy : o.endMin) - o.driveTimeMin;
+        done = done || ((o.t + 1) >= leaveBy);
+      }
+      return { done: done, targetKwh: targetKwh };
+    },
+    /**
+     * Try to leave the track for the next queued offsite job.
+     * Mutates trip + queue when starting. Returns true if a trip started.
+     */
+    tryStartTrip: function (trip, offsiteQueue, t, driveTimeMin) {
+      if (trip.phase !== 'idle') return false;
+      if (!offsiteQueue.length || t < offsiteQueue[0].gapStart) return false;
+      var job = offsiteQueue.shift();
+      if (!DaySM.canTransitionTrip('idle', 'out')) return false;
+      trip.phase = 'out';
+      trip.job = job;
+      trip.sessionIndex = job.sessionIndex;
+      trip.originIndex = job.originIndex;
+      trip.departMin = t;
+      trip.driveEndMin = t + driveTimeMin;
+      trip.scStartMin = null;
+      trip.scEndMin = null;
+      trip.scArrivalSocPct = null;
+      trip.returnMin = null;
+      // Leaving again — do not sit on residual onsite charge from the previous return
+      trip.residualUntilMin = null;
+      return true;
+    },
+    /**
+     * Advance trip phase after applying energy for this minute.
+     * Mutates trip; may push a completed record onto trip.trips.
+     * @returns {{mode:string|null}} mode forced by trip, or null if idle
+     */
+    tickTrip: function (trip, offsiteQueue, ctx) {
+      // ctx: { t, driveTimeMin, eCar, cap, sessions, lastSessionEnd, endMin, scPower applied already }
+      var t = ctx.t;
+      var mode = DaySM.modeFromTripPhase(trip.phase);
+      if (trip.phase === 'out') {
+        if (t + 1 >= trip.driveEndMin) {
+          if (!DaySM.canTransitionTrip('out', 'sc')) return { mode: mode };
+          trip.phase = 'sc';
+          trip.scStartMin = t + 1;
+          trip.scArrivalSocPct = ctx.eCar / ctx.cap * 100;
+        }
+        return { mode: mode };
+      }
+      if (trip.phase === 'sc') {
+        var jobSc = trip.job || {};
+        var check = DaySM.scDone({
+          t: t,
+          scStartMin: trip.scStartMin,
+          eCar: ctx.eCar,
+          cap: ctx.cap,
+          stopMode: jobSc.stopMode || 'next',
+          untilSocPct: jobSc.untilSocPct,
+          forMin: jobSc.forMin,
+          mustReturnBy: jobSc.mustReturnBy,
+          driveTimeMin: ctx.driveTimeMin,
+          endMin: ctx.endMin,
+        });
+        if (check.done) {
+          if (!DaySM.canTransitionTrip('sc', 'back')) return { mode: mode };
+          trip.phase = 'back';
+          trip.scEndMin = t + 1;
+          trip.driveEndMin = t + 1 + ctx.driveTimeMin;
+        }
+        return { mode: mode };
+      }
+      if (trip.phase === 'back') {
+        if (t + 1 >= trip.driveEndMin) {
+          if (!DaySM.canTransitionTrip('back', 'idle')) return { mode: mode };
+          trip.returnMin = t + 1;
+          trip.lastReturnMin = t + 1;
+          var nextLeave = offsiteQueue.length ? offsiteQueue[0].gapStart : null;
+          var resUntil = DaySM.residualUntilAfterReturn(
+            trip.returnMin, ctx.sessions, ctx.lastSessionEnd, nextLeave);
+          trip.residualUntilMin = resUntil;
+          trip.trips.push({
+            originIndex: trip.originIndex != null ? trip.originIndex
+              : (trip.job && trip.job.originIndex),
+            sessionIndex: trip.sessionIndex,
+            departMin: trip.departMin,
+            scStartMin: trip.scStartMin,
+            scEndMin: trip.scEndMin,
+            scArrivalSocPct: trip.scArrivalSocPct,
+            scDurationMin: (trip.scEndMin != null && trip.scStartMin != null)
+              ? trip.scEndMin - trip.scStartMin : null,
+            returnMin: trip.returnMin,
+            residualUntilMin: resUntil,
+          });
+          trip.phase = 'idle';
+          trip.sessionIndex = null;
+          trip.originIndex = null;
+          trip.job = null;
+        }
+        return { mode: mode };
+      }
+      return { mode: null };
+    },
+  };
+
   function simulate(p) {
     var dt = 1 / 60;
     var sessions = buildSchedule(p);
@@ -985,141 +1210,76 @@ var Sim = (function () {
       return src.gen && (cd.fromGenBusKw > 1e-9 || refilled > 1e-9);
     }
 
+    var canCharge = siteCanCharge(p);
+
     for (var t = startMin; t < endMin; t++) {
       var mode = null, coolKw = 0, genOn = false;
 
-      // ---- Offsite trip state machine ----
-      if (trip.phase === 'idle' && offsiteQueue.length && t >= offsiteQueue[0].gapStart) {
-        var job = offsiteQueue.shift();
-        trip.phase = 'out';
-        trip.job = job;
-        trip.sessionIndex = job.sessionIndex;
-        trip.originIndex = job.originIndex;
-        trip.departMin = t;
-        trip.driveEndMin = t + p.driveTimeMin;
-        trip.scStartMin = null; trip.scEndMin = null; trip.scArrivalSocPct = null; trip.returnMin = null;
-        // Leaving again — do not sit on residual onsite charge from the previous return
-        trip.residualUntilMin = null;
-      }
-      if (trip.phase === 'out') {
+      // ---- Offsite trip state machine (DaySM) ----
+      DaySM.tryStartTrip(trip, offsiteQueue, t, p.driveTimeMin);
+      var tripMode = DaySM.modeFromTripPhase(trip.phase);
+
+      if (tripMode === 'DRIVE') {
         mode = 'DRIVE';
         eCar -= driveDrainKw * dt;
         if (src.gen && src.battery && eTr < tcap) {
           genOn = refillTrailer(genBusFull) > 1e-9;
         }
-        if (t + 1 >= trip.driveEndMin) {
-          trip.phase = 'sc'; trip.scStartMin = t + 1;
-          trip.scArrivalSocPct = eCar / cap * 100;
-        }
-      } else if (trip.phase === 'sc') {
+      } else if (tripMode === 'SC') {
         mode = 'SC';
         var jobSc = trip.job || {};
-        var stopMode = jobSc.stopMode || 'next';
+        var scCheck = DaySM.scDone({
+          t: t, scStartMin: trip.scStartMin, eCar: eCar, cap: cap,
+          stopMode: jobSc.stopMode || 'next',
+          untilSocPct: jobSc.untilSocPct, forMin: jobSc.forMin,
+          mustReturnBy: jobSc.mustReturnBy,
+          driveTimeMin: p.driveTimeMin, endMin: endMin,
+        });
         var scKw = Math.min(curvePower(Math.max(0, eCar) / cap * 100, p.chargeCurveId), p.scPowerCapKw);
-        // Target energy: until-SoC mode only; otherwise charge until leave time / dwell ends
-        var targetKwh = cap;
-        if (stopMode === 'until') {
-          var socT = jobSc.untilSocPct != null ? jobSc.untilSocPct : 80;
-          targetKwh = Math.min(cap, (socT / 100) * cap);
-        }
-        var head = (targetKwh - eCar) * 60; if (head < 0) head = 0;
+        var head = (scCheck.targetKwh - eCar) * 60; if (head < 0) head = 0;
         if (scKw > head) scKw = head;
         eCar += scKw * dt; fromSupercharger += scKw * dt;
         if (src.gen && src.battery && eTr < tcap) {
           genOn = refillTrailer(genBusFull) > 1e-9;
         }
-        var done = eCar >= cap - 1e-9;
-        if (stopMode === 'for') {
-          var dwell = jobSc.forMin > 0 ? jobSc.forMin : 30;
-          done = done || ((t + 1 - trip.scStartMin) >= dwell);
-        } else if (stopMode === 'until') {
-          done = done || (eCar >= targetKwh - 1e-9);
-        } else {
-          // until next session: leave in time to drive back for dest start
-          var leaveBy = (jobSc.mustReturnBy != null ? jobSc.mustReturnBy : endMin) - p.driveTimeMin;
-          done = done || ((t + 1) >= leaveBy);
-        }
-        if (done) {
-          trip.phase = 'back'; trip.scEndMin = t + 1; trip.driveEndMin = t + 1 + p.driveTimeMin;
-        }
-      } else if (trip.phase === 'back') {
-        mode = 'DRIVE';
-        eCar -= driveDrainKw * dt;
-        if (src.gen && src.battery && eTr < tcap) {
-          genOn = refillTrailer(genBusFull) > 1e-9;
-        }
-        if (t + 1 >= trip.driveEndMin) {
-          trip.returnMin = t + 1;
-          trip.lastReturnMin = t + 1;
-          // Paddock residual: charge onsite until next enabled session — but not past
-          // a queued follow-on offsite departure (e.g. skipped hour also set to offsite).
-          var resUntil = lastSessionEnd;
-          for (var ri = 0; ri < sessions.length; ri++) {
-            if (sessions[ri].enabled && sessions[ri].startMin >= trip.returnMin) {
-              resUntil = sessions[ri].startMin;
-              break;
-            }
-          }
-          if (offsiteQueue.length) {
-            var nextLeave = offsiteQueue[0].gapStart;
-            if (nextLeave <= trip.returnMin) resUntil = trip.returnMin; // leave again immediately
-            else if (nextLeave < resUntil) resUntil = nextLeave;
-          }
-          trip.residualUntilMin = resUntil;
-          trip.trips.push({
-            originIndex: trip.originIndex != null ? trip.originIndex
-              : (trip.job && trip.job.originIndex),
-            sessionIndex: trip.sessionIndex,
-            departMin: trip.departMin,
-            scStartMin: trip.scStartMin,
-            scEndMin: trip.scEndMin,
-            scArrivalSocPct: trip.scArrivalSocPct,
-            scDurationMin: (trip.scEndMin != null && trip.scStartMin != null)
-              ? trip.scEndMin - trip.scStartMin : null,
-            returnMin: trip.returnMin,
-            residualUntilMin: resUntil,
-          });
-          trip.phase = 'idle';
-          trip.sessionIndex = null;
-          trip.originIndex = null;
-          trip.job = null;
-        }
       }
 
-      // ---- On-track / paddock modes ----
+      // Advance trip phase after energy for this minute (out→sc, sc→back, back→idle)
+      if (trip.phase !== 'idle') {
+        DaySM.tickTrip(trip, offsiteQueue, {
+          t: t, driveTimeMin: p.driveTimeMin, eCar: eCar, cap: cap,
+          sessions: sessions, lastSessionEnd: lastSessionEnd, endMin: endMin,
+        });
+      }
+
+      // ---- On-track / paddock modes (DaySM priority) ----
       if (!mode) {
         var s = sessionAt(t);
-        if (s) {
-          // Every session entry is a run (if the car is present).
-          mode = 'SESSION';
+        var residualOn = DaySM.residualActiveAt(t, trip.lastReturnMin, trip.residualUntilMin);
+        var gMode = gapModeAt(t);
+        var pad = {
+          inSession: !!s,
+          residualActive: residualOn,
+          canCharge: canCharge,
+          gapMode: gMode,
+        };
+        mode = DaySM.resolveActivityState(pad);
+        if (mode === 'SESSION') {
           var rate = p.sessionEnergyKwh / (p.sessionDurationMin / 60);
           eCar -= rate * dt;
           if (src.gen && src.battery && eTr < tcap) {
             genOn = refillTrailer(genBusFull) > 1e-9;
           }
-        } else {
-          // Gap / trailing time. Offsite gaps after the trip returns act as onsite (or none).
-          var gMode = gapModeAt(t);
-          if (gMode === 'offsite') gMode = siteCanCharge(p) ? 'onsite' : 'none';
-          // After an offsite return, always charge onsite until the next enabled session
-          // when site power is available — even if a skipped hour is set to "No charging".
-          // (Away/drive minutes are separate; this is residual paddock time only.)
-          if (trip.lastReturnMin != null && trip.residualUntilMin != null &&
-              t >= trip.lastReturnMin && t < trip.residualUntilMin &&
-              siteCanCharge(p)) {
-            gMode = 'onsite';
-          }
+        } else if (mode === 'CHARGE') {
           coolKw = cooling[t] || 0;
-          if (gMode === 'onsite') {
-            mode = 'CHARGE';
-            genOn = chargeCarOnsite(coolKw);
-          } else {
-            mode = 'IDLE';
-            // "No charging": car sits flat (no cooling drain), but gen can still top the trailer
-            if (gMode !== 'none' && coolKw > 0) eCar -= coolKw * dt;
-            if (src.gen && src.battery && eTr < tcap) {
-              genOn = refillTrailer(genBusFull) > 1e-9;
-            }
+          genOn = chargeCarOnsite(coolKw);
+        } else {
+          // IDLE: "No charging" — car sits flat (no cooling drain), gen may top trailer
+          coolKw = cooling[t] || 0;
+          var effPad = DaySM.effectivePaddockMode(pad);
+          if (effPad !== 'none' && coolKw > 0) eCar -= coolKw * dt;
+          if (src.gen && src.battery && eTr < tcap) {
+            genOn = refillTrailer(genBusFull) > 1e-9;
           }
         }
       }
@@ -1140,17 +1300,24 @@ var Sim = (function () {
     var fuelGal = (src.gen && p.genPowerKw > 0)
       ? genAcKwh * (p.fuelBurnGalPerHr / p.genPowerKw) : 0;
 
-    // Which planned enabled sessions actually got SESSION minutes?
-    var ranIdx = {};
+    // Per-session run minutes (for partial sessions + fully-missed detection)
+    var ranMinutes = {}; // index → minutes of SESSION
+    var ranFirstMin = {}; // index → first SESSION minute
+    var ranLastMin = {};  // index → last SESSION minute
     timeline.forEach(function (pt) {
       if (pt.mode !== 'SESSION') return;
       var ss = sessionAt(pt.min);
-      if (ss) ranIdx[ss.index] = true;
+      if (!ss) return;
+      ranMinutes[ss.index] = (ranMinutes[ss.index] || 0) + 1;
+      if (ranFirstMin[ss.index] == null || pt.min < ranFirstMin[ss.index]) ranFirstMin[ss.index] = pt.min;
+      if (ranLastMin[ss.index] == null || pt.min > ranLastMin[ss.index]) ranLastMin[ss.index] = pt.min;
     });
-    var skippedSessions = []; // missed (e.g. away offsite) among enabled sessions
+    var skippedSessions = []; // fully away (0 SESSION min) among enabled — UI auto-unchecks these
+    var partialSessions = []; // returned mid-session; energy is already time-prorated
     var disabledSessions = []; // intentionally unchecked in the plan
     var sessionsRun = 0;
     var enabledCount = 0;
+    var plannedDur = p.sessionDurationMin > 0 ? p.sessionDurationMin : 20;
     sessions.forEach(function (ss) {
       if (!ss.enabled) {
         disabledSessions.push({
@@ -1159,12 +1326,22 @@ var Sim = (function () {
         return;
       }
       enabledCount++;
-      if (ranIdx[ss.index]) {
-        sessionsRun++;
-      } else {
+      var mins = ranMinutes[ss.index] || 0;
+      if (mins <= 0) {
         skippedSessions.push({
-          index: ss.index, startMin: ss.startMin, reason: 'missed', before: ss.before,
+          index: ss.index, startMin: ss.startMin, endMin: ss.endMin,
+          reason: 'missed', before: ss.before,
         });
+      } else {
+        sessionsRun++;
+        if (mins < plannedDur) {
+          partialSessions.push({
+            index: ss.index, startMin: ss.startMin, endMin: ss.endMin,
+            minutesRun: mins, plannedMin: plannedDur,
+            runFromMin: ranFirstMin[ss.index], runToMin: ranLastMin[ss.index] + 1,
+            energyKwh: p.sessionEnergyKwh * (mins / plannedDur),
+          });
+        }
       }
     });
 
@@ -1203,6 +1380,8 @@ var Sim = (function () {
       enabledSessions: enabledCount,
       disabledSessions: disabledSessions,
       skippedSessions: skippedSessions,
+      partialSessions: partialSessions,
+      sessionRunMinutes: ranMinutes,
       trips: allTrips,
       sc: lastTrip ? {
         name: p.scName || '',
@@ -1234,6 +1413,7 @@ var Sim = (function () {
     buildSchedule: buildSchedule, chargeDelivery: chargeDelivery, siteSources: siteSources,
     siteCanCharge: siteCanCharge, offsiteChargingEnabled: offsiteChargingEnabled,
     effectiveGapMode: effectiveGapMode,
+    DaySM: DaySM,
     simulate: simulate, GAP_ACTIONS: GAP_ACTIONS,
   };
 })();
@@ -1493,9 +1673,15 @@ var UI = (function () {
     if (m.fromGridKwh > 0.05) {
       rows.push({ label: 'From onsite charging', value: fmt(m.fromGridKwh, 0) + ' kWh' });
     }
+    // Fully-away sessions are auto-unchecked to "Skipped" in the UI; list any still pending
     if (m.skippedSessions && m.skippedSessions.length) {
-      rows.push({ label: 'Missed', value: m.skippedSessions.map(function (s) {
+      rows.push({ label: 'Away (auto-skip)', value: m.skippedSessions.map(function (s) {
         return clock(s.startMin);
+      }).join(', ') });
+    }
+    if (m.partialSessions && m.partialSessions.length) {
+      rows.push({ label: 'Partial sessions', value: m.partialSessions.map(function (s) {
+        return clock(s.startMin) + ' (' + s.minutesRun + ' min)';
       }).join(', ') });
     }
     if (m.sc) {
@@ -2002,6 +2188,189 @@ var UI = (function () {
     return { state: next, summary: summary };
   }
 
+  /**
+   * Clip [a,b) to [w0,w1); return null if empty.
+   * Shared by trip window layout (tests + session table).
+   */
+  function clipSeg(a, b, w0, w1) {
+    if (a == null || b == null || !(b > a)) return null;
+    var x0 = Math.max(a, w0), x1 = Math.min(b, w1);
+    return x1 > x0 ? { a: x0, b: x1 } : null;
+  }
+
+  /**
+   * When an activity spans into a later session-block window, label it as a continuation.
+   * e.g. "Drive back" + started earlier → "Continue drive back"
+   */
+  function continueActivityLabel(base, trueStart, winStart) {
+    if (trueStart == null || winStart == null || !(trueStart < winStart)) return base;
+    base = String(base || '');
+    if (!base) return base;
+    return 'Continue ' + base.charAt(0).toLowerCase() + base.slice(1);
+  }
+
+  /**
+   * Layout offsite-trip segments for one session-block time window.
+   * Returns chronological rows for the fixed DOM order:
+   *   driveOut → charge (SC or residual-only paddock) → driveBack → wait (residual after back).
+   * Post-return paddock never uses the charge row when drive-back is also in the window
+   * (avoids "2:24 Charge" above "2:00 Drive back").
+   *
+   * @param {object} trip metrics trip record
+   * @param {number} winStart
+   * @param {number} winEnd
+   * @param {{driveTimeMin?:number, residualUntilMin?:number}} opts
+   * @returns {{outSeg, scSeg, backSeg, chargePadSeg, waitSeg, fullyAway}}
+   */
+  function layoutTripWindowSegments(trip, winStart, winEnd, opts) {
+    opts = opts || {};
+    var empty = {
+      outSeg: null, scSeg: null, backSeg: null,
+      chargePadSeg: null, waitSeg: null, fullyAway: false,
+    };
+    if (!trip || trip.departMin == null || winEnd <= winStart) return empty;
+    var driveMin = opts.driveTimeMin > 0 ? opts.driveTimeMin : 0;
+    var driveOutEnd = trip.scStartMin != null ? trip.scStartMin
+      : (trip.departMin + driveMin);
+    var scEnd = trip.scEndMin != null ? trip.scEndMin
+      : (trip.returnMin != null ? trip.returnMin - driveMin : null);
+    var backEnd = trip.returnMin != null ? trip.returnMin
+      : (scEnd != null ? scEnd + driveMin : null);
+    var tripEnd = backEnd != null ? backEnd : (scEnd != null ? scEnd : driveOutEnd);
+
+    var outSeg = clipSeg(trip.departMin, driveOutEnd, winStart, winEnd);
+    var scSeg = (trip.scStartMin != null && scEnd != null)
+      ? clipSeg(trip.scStartMin, scEnd, winStart, winEnd) : null;
+    var backSeg = (scEnd != null && backEnd != null)
+      ? clipSeg(scEnd, backEnd, winStart, winEnd) : null;
+
+    var resUntil = trip.residualUntilMin != null ? trip.residualUntilMin
+      : (opts.residualUntilMin != null ? opts.residualUntilMin : null);
+    var resSeg = (trip.returnMin != null && resUntil != null)
+      ? clipSeg(trip.returnMin, resUntil, winStart, winEnd) : null;
+    if (resSeg && !(resSeg.b > resSeg.a)) resSeg = null;
+
+    var fullyAway = trip.departMin <= winStart && tripEnd >= winEnd;
+    // Charge row: SC, or residual-only paddock when drive-back is not in this window
+    var chargePadSeg = null;
+    var waitSeg = null;
+    if (!scSeg && resSeg && !backSeg && !fullyAway) chargePadSeg = resSeg;
+    if (resSeg && backSeg) waitSeg = resSeg;
+
+    return {
+      outSeg: outSeg, scSeg: scSeg, backSeg: backSeg,
+      chargePadSeg: chargePadSeg, waitSeg: waitSeg, fullyAway: fullyAway,
+    };
+  }
+
+  /**
+   * Full unclipped trip legs for the origin session block (no window splitting).
+   * Residual after return → waitSeg (after drive-back in DOM order).
+   */
+  function layoutFullTripSegments(trip, opts) {
+    opts = opts || {};
+    var empty = {
+      outSeg: null, scSeg: null, backSeg: null,
+      chargePadSeg: null, waitSeg: null, fullyAway: false,
+    };
+    if (!trip || trip.departMin == null) return empty;
+    var driveMin = opts.driveTimeMin > 0 ? opts.driveTimeMin : 0;
+    var driveOutEnd = trip.scStartMin != null ? trip.scStartMin
+      : (trip.departMin + driveMin);
+    var scEnd = trip.scEndMin != null ? trip.scEndMin
+      : (trip.returnMin != null ? trip.returnMin - driveMin : null);
+    var backEnd = trip.returnMin != null ? trip.returnMin
+      : (scEnd != null ? scEnd + driveMin : null);
+    var outSeg = (driveOutEnd > trip.departMin)
+      ? { a: trip.departMin, b: driveOutEnd } : null;
+    var scSeg = (trip.scStartMin != null && scEnd != null && scEnd > trip.scStartMin)
+      ? { a: trip.scStartMin, b: scEnd } : null;
+    var backSeg = (scEnd != null && backEnd != null && backEnd > scEnd)
+      ? { a: scEnd, b: backEnd } : null;
+    var resUntil = trip.residualUntilMin != null ? trip.residualUntilMin
+      : (opts.residualUntilMin != null ? opts.residualUntilMin : null);
+    var waitSeg = null;
+    if (trip.returnMin != null && resUntil != null && resUntil > trip.returnMin) {
+      waitSeg = { a: trip.returnMin, b: resUntil };
+    }
+    return {
+      outSeg: outSeg, scSeg: scSeg, backSeg: backSeg,
+      chargePadSeg: null, waitSeg: waitSeg, fullyAway: false,
+    };
+  }
+
+  /** True when this disabled session is covered by an offsite trip's away window. */
+  function isAwayMissedSession(sess, trips) {
+    if (!sess || sess.enabled !== false) return false;
+    if (!trips || !trips.length) return false;
+    var si = sess.index;
+    var i;
+    for (i = 0; i < trips.length; i++) {
+      if (trips[i].originIndex === si) return false; // trip origin keeps its place
+    }
+    for (i = 0; i < trips.length; i++) {
+      var t = trips[i];
+      if (t.departMin == null) continue;
+      var ret = t.returnMin != null ? t.returnMin : Infinity;
+      // Planned start falls while away (missed / auto-skip during offsite)
+      if (sess.startMin >= t.departMin && sess.startMin < ret) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Display order for session blocks: chronological, except disabled sessions that
+   * fall during an offsite trip are listed right after that trip's origin block
+   * (after drive-back), so the trip is not split across skipped hours.
+   * @returns {number[]} schedule indices (0-based into sched array)
+   */
+  function sessionDisplayOrder(sched, trips) {
+    trips = trips || [];
+    var n = sched.length;
+    var order = [];
+    var emitted = {};
+    var i, j, t, s, ret;
+
+    function emit(idx) {
+      if (idx < 0 || idx >= n || emitted[idx]) return;
+      order.push(idx);
+      emitted[idx] = true;
+    }
+
+    // originIndex is 1-based session index from the engine
+    function originSchedIdx(trip) {
+      if (trip.originIndex == null) return -1;
+      for (var k = 0; k < n; k++) {
+        if (sched[k].index === trip.originIndex) return k;
+      }
+      return -1;
+    }
+
+    for (i = 0; i < n; i++) {
+      if (emitted[i]) continue;
+      s = sched[i];
+      if (isAwayMissedSession(s, trips)) continue; // deferred after origin
+      emit(i);
+      // After a trip origin, append away-missed sessions covered by that trip
+      for (j = 0; j < trips.length; j++) {
+        t = trips[j];
+        if (t.originIndex !== s.index) continue;
+        ret = t.returnMin != null ? t.returnMin : Infinity;
+        for (var m = 0; m < n; m++) {
+          if (emitted[m]) continue;
+          var sm = sched[m];
+          if (!isAwayMissedSession(sm, trips)) continue;
+          if (t.departMin != null && sm.startMin >= t.departMin && sm.startMin < ret) {
+            emit(m);
+          }
+        }
+      }
+    }
+    // Any remaining (e.g. away-missed with no matching trip) in schedule order
+    for (i = 0; i < n; i++) emit(i);
+    return order;
+  }
+
   return { UI_FIELDS: UI_FIELDS, CAR_FIELD_IDS: CAR_FIELD_IDS, TRACK_FIELD_IDS: TRACK_FIELD_IDS,
            SITE_FIELD_IDS: SITE_FIELD_IDS, PROFILE_KINDS: PROFILE_KINDS, PROFILE_META: PROFILE_META,
            GAP_ACTION_OPTIONS: GAP_ACTION_OPTIONS,
@@ -2025,7 +2394,12 @@ var UI = (function () {
            findProfile: findProfile, upsertProfile: upsertProfile, removeProfile: removeProfile,
            fieldIdsForKind: fieldIdsForKind,
            packExport: packExport, parseImport: parseImport, findByName: findByName,
-           duplicateImportName: duplicateImportName, applyImport: applyImport };
+           duplicateImportName: duplicateImportName, applyImport: applyImport,
+           clipSeg: clipSeg, continueActivityLabel: continueActivityLabel,
+           layoutTripWindowSegments: layoutTripWindowSegments,
+           layoutFullTripSegments: layoutFullTripSegments,
+           isAwayMissedSession: isAwayMissedSession,
+           sessionDisplayOrder: sessionDisplayOrder };
 })();
 
 (function bootstrap() {
@@ -2740,6 +3114,7 @@ var UI = (function () {
       '<tr class="sess-drive-out sess-drive" hidden>' +
         '<td class="do-start">—</td>' +
         '<td class="sess-act do-act">Drive out</td>' +
+        '<td class="sess-mut do-end">—</td>' +
         '<td class="sess-mut do-dur">—</td>' +
         '<td class="sess-num do-soc">—</td>' +
         '<td class="sess-num do-trl">—</td><td></td>' +
@@ -2747,13 +3122,15 @@ var UI = (function () {
       '<tr class="sess-charge-row">' +
         '<td class="ch-start">—</td>' +
         '<td class="sess-act ch-act">' + chargeActHtml(mode, true, allowOnsite, s) + '</td>' +
+        '<td class="sess-mut ch-end">—</td>' +
         '<td class="sess-mut ch-dur">—</td>' +
         '<td class="sess-num ch-soc">—</td>' +
         '<td class="sess-num ch-trl">—</td><td></td>' +
       '</tr>' +
       '<tr class="sess-drive-back sess-drive" hidden>' +
         '<td class="db-start">—</td>' +
-        '<td class="sess-act">Drive back</td>' +
+        '<td class="sess-act db-act">Drive back</td>' +
+        '<td class="sess-mut db-end">—</td>' +
         '<td class="sess-mut db-dur">—</td>' +
         '<td class="sess-num db-soc">—</td>' +
         '<td class="sess-num db-trl">—</td><td></td>' +
@@ -2761,6 +3138,7 @@ var UI = (function () {
       '<tr class="sess-wait-row" hidden>' +
         '<td class="wt-start">—</td>' +
         '<td class="sess-act wt-act">Wait</td>' +
+        '<td class="sess-mut wt-end">—</td>' +
         '<td class="sess-mut wt-dur">—</td>' +
         '<td class="sess-num wt-soc">—</td>' +
         '<td class="sess-num wt-trl">—</td><td></td>' +
@@ -2777,6 +3155,7 @@ var UI = (function () {
             '<span class="sess-act-label">' + actLabel + '</span>' +
           '</label>' +
         '</td>' +
+        '<td class="sess-mut"><span class="sess-end">—</span></td>' +
         '<td class="sess-mut"><span class="sess-dur">—</span></td>' +
         '<td><span class="sess-soc-post sess-num">—</span></td>' +
         '<td><span class="sess-trl-post sess-num">—</span></td>' +
@@ -2796,60 +3175,82 @@ var UI = (function () {
     if (!table) return;
     var sched = Sim.buildSchedule(p);
     var tl = result && result.timeline;
-    var missed = {};
-    if (result && result.metrics && result.metrics.skippedSessions) {
-      result.metrics.skippedSessions.forEach(function (s) { missed[s.index] = true; });
+    var partialByIdx = {};
+    if (result && result.metrics && result.metrics.partialSessions) {
+      result.metrics.partialSessions.forEach(function (s) { partialByIdx[s.index] = s; });
     }
-    // Offsite trips keyed by destination (legacy) and by origin row (who chose offsite).
-    var tripsBySess = {};
-    var tripsByOrigin = {};
-    if (result && result.metrics && result.metrics.trips) {
-      result.metrics.trips.forEach(function (t) {
-        if (t.sessionIndex != null) tripsBySess[t.sessionIndex] = t;
-        if (t.originIndex != null) tripsByOrigin[t.originIndex] = t;
-      });
-    }
+    var runMins = (result && result.metrics && result.metrics.sessionRunMinutes) || {};
+    // All offsite trips (may span multiple session blocks when drive is long)
+    var allTrips = (result && result.metrics && result.metrics.trips) || [];
     var scName = (p.scName && String(p.scName).trim()) || 'offsite';
+    var noRes = { checkReserve: false };
+    var driveModes = { DRIVE: true };
+    var scModes = { SC: true };
+    var padModes = { CHARGE: true, IDLE: true };
+
+    /** Trip that departed from this schedule session (origin). */
+    function tripFromOrigin(sess) {
+      if (!sess) return null;
+      for (var i = 0; i < allTrips.length; i++) {
+        if (allTrips[i].originIndex === sess.index) return allTrips[i];
+      }
+      return null;
+    }
+
     var blocks = table.querySelectorAll('tbody.sess-block');
-    blocks.forEach(function (block, idx) {
+    blocks.forEach(function (block) {
+      var idx = +block.getAttribute('data-idx');
+      if (!isFinite(idx) || idx < 0) return;
       var s = sched[idx];
       if (!s) return;
       var editRow = block.querySelector('tr.sess-edit-row');
       if (!editRow) return;
       var enabled = s.enabled !== false;
+      var awayMissed = UI.isAwayMissedSession(s, allTrips);
       var actLabel = editRow.querySelector('.sess-act-label');
-      if (actLabel) actLabel.textContent = enabled ? 'Track Session' : 'Skipped Session';
+      if (actLabel) {
+        actLabel.textContent = enabled ? 'Track Session'
+          : (awayMissed ? 'Missed Session' : 'Skipped Session');
+      }
       editRow.classList.toggle('sess-disabled', !enabled);
+      editRow.classList.toggle('sess-away-missed', awayMissed);
 
       // Primary session row
       var dur = Math.max(0, s.endMin - s.startMin);
-      var isMissed = enabled && !!missed[s.index];
+      var partial = partialByIdx[s.index];
+      var minsRun = runMins[s.index] || 0;
+      var endEl = editRow.querySelector('.sess-end');
       var durEl = editRow.querySelector('.sess-dur');
       var socEl = editRow.querySelector('.sess-soc-post');
       var trlEl = editRow.querySelector('.sess-trl-post');
-      var sA = s.startMin > 0 ? s.startMin - 1 : s.startMin;
-      var sB = s.endMin > s.startMin ? s.endMin - 1 : s.startMin;
+      // SoC over minutes actually run (partial) or full session window
+      var sA = (partial && partial.runFromMin != null) ? partial.runFromMin
+        : (s.startMin > 0 ? s.startMin - 1 : s.startMin);
+      var sB = (partial && partial.runToMin != null) ? (partial.runToMin - 1)
+        : (s.endMin > s.startMin ? s.endMin - 1 : s.startMin);
       if (!enabled) {
-        // Intentionally skipped: no For / SoC values
+        // Skipped (manual or auto-uncheck when fully away): no End / For / SoC values
+        if (endEl) endEl.textContent = '';
         if (durEl) durEl.textContent = '';
         setSocCellText(socEl, '', 'sess-soc-post sess-num', false);
         setSocCellText(trlEl, '', 'sess-trl-post sess-num', false);
         editRow.classList.remove('sess-missed');
-      } else if (isMissed) {
-        // Away during this enabled session (e.g. still on an offsite trip)
-        if (durEl) durEl.textContent = 'missed';
-        setSocCellText(socEl, 'missed', 'sess-soc-post sess-num', true);
-        setSocCellText(trlEl, '—', 'sess-trl-post sess-num', false);
-        editRow.classList.add('sess-missed');
       } else {
-        if (durEl) durEl.textContent = fmtMin(dur);
+        // End = session end (or partial run end). Start column stays planned start.
+        var endMinShow = partial && partial.runToMin != null ? partial.runToMin : s.endMin;
+        if (endEl) endEl.textContent = UI.minToAmPm(endMinShow);
+        if (durEl) {
+          // Partial runs show actual minutes only (purple via .sess-partial)
+          durEl.textContent = partial ? fmtMin(partial.minutesRun) : fmtMin(dur);
+        }
         if (socEl) setSocCell(socEl, tl, sA, sB, p, 'sess-soc-post sess-num', 'car');
         if (trlEl) setSocCell(trlEl, tl, sA, sB, p, 'sess-trl-post sess-num', 'trailer');
         editRow.classList.remove('sess-missed');
+        // Soft-highlight partial sessions
+        editRow.classList.toggle('sess-partial', !!partial);
       }
 
-      // Post-session charge (gap after this session → next). None for last session.
-      // Skipped rows: charge mode for the full unused hour (start → next start).
+      // Activity rows after the primary session (or full hour for skipped).
       var driveOut = block.querySelector('tr.sess-drive-out');
       var chargeRow = block.querySelector('tr.sess-charge-row');
       var driveBack = block.querySelector('tr.sess-drive-back');
@@ -2861,126 +3262,160 @@ var UI = (function () {
       var allowOnsite = Sim.siteCanCharge(p);
       var rawMode = s.after != null ? s.after : s.continueAfter;
       var chargeMode = Sim.effectiveGapMode(rawMode, p);
-      var isOffsite = chargeMode === 'offsite';
-      var isNone = chargeMode === 'none';
-      // Trip targets the next *enabled* destination session; prefer trip owned by this row.
-      var tripDest = null;
-      for (var ti = idx + 1; ti < sched.length; ti++) {
-        if (sched[ti].enabled) { tripDest = sched[ti]; break; }
+      // Next chronological non-away-missed session (for paddock gap end)
+      var nextPresent = null;
+      for (var ni = idx + 1; ni < sched.length; ni++) {
+        if (!UI.isAwayMissedSession(sched[ni], allTrips)) {
+          nextPresent = sched[ni];
+          break;
+        }
       }
-      var trip = tripsByOrigin[s.index] || (tripDest ? tripsBySess[tripDest.index] : null);
-      // Only attach dest-keyed trip to the origin that actually launched it (avoid double narrative)
-      if (trip && trip.originIndex != null && trip.originIndex !== s.index) {
-        // Another row owns this trip; only use if we have no origin match (legacy)
-        if (tripsByOrigin[s.index]) trip = tripsByOrigin[s.index];
-        else if (!(isOffsite && enabled)) trip = null;
+      var winStart = enabled ? s.endMin : s.startMin;
+      var winEnd = nextPresent ? nextPresent.startMin
+        : (next ? next.startMin : s.endMin + 60);
+
+      function setSegClock(row, startSel, endSel, durSel, seg) {
+        if (!row || !seg) return;
+        setCell(row.querySelector(startSel), UI.minToAmPm(seg.a));
+        setCell(row.querySelector(endSel), UI.minToAmPm(seg.b));
+        setCell(row.querySelector(durSel), fmtMin(seg.b - seg.a));
+      }
+      function keepAfterMode(val) {
+        if (val == null || val === '') return;
+        var h = block.querySelector('input.sess-after-keep');
+        if (!h) {
+          h = document.createElement('input');
+          h.type = 'hidden';
+          h.className = 'sess-after-keep';
+          block.appendChild(h);
+        }
+        h.value = val;
+      }
+      function hideIntermediatesKeepAfter() {
+        var selHide = chargeRow.querySelector('select.sess-after');
+        if (selHide) keepAfterMode(selHide.value);
+        showRow(driveOut, false);
+        showRow(driveBack, false);
+        showRow(waitRow, false);
+        showRow(chargeRow, false);
       }
 
-      // Full offsite narrative for any row (run or skipped) that launches an offsite trip.
-      if (isOffsite && trip && trip.departMin != null &&
-          (trip.originIndex == null || trip.originIndex === s.index)) {
-        var driveOutEnd = trip.scStartMin != null ? trip.scStartMin : (trip.departMin + (p.driveTimeMin || 0));
-        showRow(driveOut, true);
-        setCell(driveOut.querySelector('.do-start'), UI.minToAmPm(trip.departMin));
-        setCell(driveOut.querySelector('.do-act'), 'Drive to ' + scName);
-        setCell(driveOut.querySelector('.do-dur'), fmtMin(Math.max(0, driveOutEnd - trip.departMin)));
-        var doA = trip.departMin > 0 ? trip.departMin - 1 : trip.departMin;
-        var doB = driveOutEnd > 0 ? driveOutEnd - 1 : trip.departMin;
-        // Drive/charge/wait: reserve only applies at track session end — skip it here.
-        // Negative SoC still gets critical highlight via setSocCell.
-        var noRes = { checkReserve: false };
-        var driveModes = { DRIVE: true };
-        var scModes = { SC: true };
-        var padModes = { CHARGE: true, IDLE: true };
-        setSocCell(driveOut.querySelector('.do-soc'), tl, doA, doB, p, 'sess-num do-soc', 'car',
-          Object.assign({}, noRes, { modes: driveModes }));
-        setSocCell(driveOut.querySelector('.do-trl'), tl, doA, doB, p, 'sess-num do-trl', 'trailer',
-          Object.assign({}, noRes, { modes: driveModes }));
+      // Missed while away: only the gray primary row — trip is on the origin block
+      if (awayMissed) {
+        hideIntermediatesKeepAfter();
+        return;
+      }
 
-        showRow(chargeRow, true);
-        chargeRow.classList.add('sess-sc');
-        var scEnd = trip.scEndMin != null ? trip.scEndMin
-          : (trip.returnMin != null ? trip.returnMin - (p.driveTimeMin || 0) : null);
-        var chStart = trip.scStartMin != null ? trip.scStartMin : trip.departMin;
-        setCell(chargeRow.querySelector('.ch-start'), UI.minToAmPm(chStart));
-        setCell(chargeRow.querySelector('.ch-dur'),
-          scEnd != null && trip.scStartMin != null ? fmtMin(Math.max(0, scEnd - trip.scStartMin)) : '…');
-        if (trip.scStartMin != null && scEnd != null) {
-          var chA = trip.scStartMin > 0 ? trip.scStartMin - 1 : trip.scStartMin;
-          var chB = scEnd - 1;
-          setSocCell(chargeRow.querySelector('.ch-soc'), tl, chA, chB, p, 'sess-num ch-soc', 'car',
-            Object.assign({}, noRes, { modes: scModes }));
-          setSocCell(chargeRow.querySelector('.ch-trl'), tl, chA, chB, p, 'sess-num ch-trl', 'trailer',
-            Object.assign({}, noRes, { modes: scModes }));
-        } else {
-          setSocCell(chargeRow.querySelector('.ch-soc'), tl, null, null, p, 'sess-num ch-soc', 'car', noRes);
-          setSocCell(chargeRow.querySelector('.ch-trl'), tl, null, null, p, 'sess-num ch-trl', 'trailer', noRes);
+      // Full offsite trip lives on the origin block only (unsplit End/For times)
+      var trip = tripFromOrigin(s);
+      if (trip && trip.departMin != null) {
+        var residualUntil = trip.residualUntilMin;
+        if (residualUntil == null) {
+          residualUntil = nextPresent ? nextPresent.startMin
+            : (next ? next.startMin : s.endMin + 60);
+        }
+        var segs = UI.layoutFullTripSegments(trip, {
+          driveTimeMin: p.driveTimeMin || 0,
+          residualUntilMin: residualUntil,
+        });
+        var outSeg = segs.outSeg;
+        var scSeg = segs.scSeg;
+        var backSeg = segs.backSeg;
+        var waitSeg = segs.waitSeg;
+
+        function setAwayChargeLabel(label) {
+          var chAct = chargeRow.querySelector('.ch-act');
+          if (!chAct) return;
+          var sel = chAct.querySelector('select.sess-after');
+          if (sel) return; // origin keeps planner select
+          chAct.textContent = label;
         }
 
-        if (trip.scEndMin != null) {
+        if (outSeg) {
+          showRow(driveOut, true);
+          setCell(driveOut.querySelector('.do-act'), 'Drive to ' + scName);
+          setSegClock(driveOut, '.do-start', '.do-end', '.do-dur', outSeg);
+          setSocCell(driveOut.querySelector('.do-soc'), tl, outSeg.a, outSeg.b - 1, p,
+            'sess-num do-soc', 'car', Object.assign({}, noRes, { modes: driveModes }));
+          setSocCell(driveOut.querySelector('.do-trl'), tl, outSeg.a, outSeg.b - 1, p,
+            'sess-num do-trl', 'trailer', Object.assign({}, noRes, { modes: driveModes }));
+        } else {
+          showRow(driveOut, false);
+        }
+
+        if (scSeg) {
+          showRow(chargeRow, true);
+          chargeRow.classList.add('sess-sc');
+          setAwayChargeLabel('Charge offsite');
+          setSegClock(chargeRow, '.ch-start', '.ch-end', '.ch-dur', scSeg);
+          setSocCell(chargeRow.querySelector('.ch-soc'), tl, scSeg.a, scSeg.b - 1, p,
+            'sess-num ch-soc', 'car', Object.assign({}, noRes, { modes: scModes }));
+          setSocCell(chargeRow.querySelector('.ch-trl'), tl, scSeg.a, scSeg.b - 1, p,
+            'sess-num ch-trl', 'trailer', Object.assign({}, noRes, { modes: scModes }));
+        } else {
+          // Keep origin after-mode select even if SC not yet started
+          showRow(chargeRow, true);
+          chargeRow.classList.remove('sess-sc');
+        }
+
+        if (backSeg) {
           showRow(driveBack, true);
-          var backDur = trip.returnMin != null
-            ? Math.max(0, trip.returnMin - trip.scEndMin) : (p.driveTimeMin || 0);
-          setCell(driveBack.querySelector('.db-start'), UI.minToAmPm(trip.scEndMin));
-          setCell(driveBack.querySelector('.db-dur'),
-            trip.returnMin != null ? fmtMin(backDur) : fmtMin(p.driveTimeMin) + '…');
-          if (trip.returnMin != null) {
-            var dbA = trip.scEndMin > 0 ? trip.scEndMin - 1 : trip.scEndMin;
-            var dbB = trip.returnMin - 1;
-            setSocCell(driveBack.querySelector('.db-soc'), tl, dbA, dbB, p, 'sess-num db-soc', 'car',
-              Object.assign({}, noRes, { modes: driveModes }));
-            setSocCell(driveBack.querySelector('.db-trl'), tl, dbA, dbB, p, 'sess-num db-trl', 'trailer',
-              Object.assign({}, noRes, { modes: driveModes }));
-          } else {
-            setSocCell(driveBack.querySelector('.db-soc'), tl, null, null, p, 'sess-num db-soc', 'car', noRes);
-            setSocCell(driveBack.querySelector('.db-trl'), tl, null, null, p, 'sess-num db-trl', 'trailer', noRes);
-          }
+          setCell(driveBack.querySelector('.db-act'), 'Drive back');
+          setSegClock(driveBack, '.db-start', '.db-end', '.db-dur', backSeg);
+          setSocCell(driveBack.querySelector('.db-soc'), tl, backSeg.a, backSeg.b - 1, p,
+            'sess-num db-soc', 'car', Object.assign({}, noRes, { modes: driveModes }));
+          setSocCell(driveBack.querySelector('.db-trl'), tl, backSeg.a, backSeg.b - 1, p,
+            'sess-num db-trl', 'trailer', Object.assign({}, noRes, { modes: driveModes }));
         } else {
           showRow(driveBack, false);
         }
 
-        // Wait after return until the next *enabled* session (spans skipped rows)
-        var waitUntil = tripDest || next;
-        if (trip.returnMin != null && waitUntil && trip.returnMin < waitUntil.startMin) {
+        if (waitSeg) {
           showRow(waitRow, true);
-          setCell(waitRow.querySelector('.wt-start'), UI.minToAmPm(trip.returnMin));
           setCell(waitRow.querySelector('.wt-act'),
             allowOnsite ? 'Charge onsite' : 'Wait');
-          setCell(waitRow.querySelector('.wt-dur'), fmtMin(waitUntil.startMin - trip.returnMin));
-          var wtA = trip.returnMin;
-          var wtB = waitUntil.startMin > 0 ? waitUntil.startMin - 1 : waitUntil.startMin;
-          setSocCell(waitRow.querySelector('.wt-soc'), tl, wtA, wtB, p, 'sess-num wt-soc', 'car',
-            Object.assign({}, noRes, { modes: padModes }));
-          setSocCell(waitRow.querySelector('.wt-trl'), tl, wtA, wtB, p, 'sess-num wt-trl', 'trailer',
-            Object.assign({}, noRes, { modes: padModes }));
+          setSegClock(waitRow, '.wt-start', '.wt-end', '.wt-dur', waitSeg);
+          setSocCell(waitRow.querySelector('.wt-soc'), tl, waitSeg.a, waitSeg.b - 1, p,
+            'sess-num wt-soc', 'car', Object.assign({}, noRes, { modes: padModes }));
+          setSocCell(waitRow.querySelector('.wt-trl'), tl, waitSeg.a, waitSeg.b - 1, p,
+            'sess-num wt-trl', 'trailer', Object.assign({}, noRes, { modes: padModes }));
         } else {
           showRow(waitRow, false);
         }
-      } else {
-        // Onsite / none / skipped-hour charge until next table row
-        showRow(driveOut, false);
-        showRow(driveBack, false);
-        showRow(waitRow, false);
-        showRow(chargeRow, true);
-        if (isOffsite) chargeRow.classList.add('sess-sc');
-        else chargeRow.classList.remove('sess-sc');
-        var chAct = chargeRow.querySelector('.ch-act');
-        if (chAct && !chAct.querySelector('select')) {
-          chAct.textContent = gapModeLabel(chargeMode, allowOnsite);
-        }
-        // Skipped session: entire hour (start → next). Enabled: gap after run (end → next).
-        var gapStart = enabled ? s.endMin : s.startMin;
-        var gapEnd = next ? next.startMin : (enabled ? s.endMin : s.endMin);
-        var gapMin = Math.max(0, gapEnd - gapStart);
-        setCell(chargeRow.querySelector('.ch-start'), UI.minToAmPm(gapStart));
-        setCell(chargeRow.querySelector('.ch-dur'), fmtMin(gapMin));
-        var onA = gapStart;
-        var onB = gapEnd > 0 ? gapEnd - 1 : gapStart;
-        // Exclude DRIVE/SC so "No charging" / onsite rows don't absorb drive-back discharge
-        var noResOn = { checkReserve: false, modes: { CHARGE: true, IDLE: true } };
-        setSocCell(chargeRow.querySelector('.ch-soc'), tl, onA, onB, p, 'sess-num ch-soc', 'car', noResOn);
-        setSocCell(chargeRow.querySelector('.ch-trl'), tl, onA, onB, p, 'sess-num ch-trl', 'trailer', noResOn);
+        return;
       }
+
+      // Onsite / none paddock until next present table row (no trip from this session)
+      showRow(driveOut, false);
+      showRow(driveBack, false);
+      showRow(waitRow, false);
+      showRow(chargeRow, true);
+      chargeRow.classList.remove('sess-sc');
+      var chAct = chargeRow.querySelector('.ch-act');
+      if (chAct && !chAct.querySelector('select')) {
+        chAct.textContent = gapModeLabel(chargeMode, allowOnsite);
+      }
+      var gapStart = winStart;
+      var gapEnd = winEnd;
+      var gapMin = Math.max(0, gapEnd - gapStart);
+      setCell(chargeRow.querySelector('.ch-start'), UI.minToAmPm(gapStart));
+      setCell(chargeRow.querySelector('.ch-end'), UI.minToAmPm(gapEnd));
+      setCell(chargeRow.querySelector('.ch-dur'), fmtMin(gapMin));
+      var noResOn = { checkReserve: false, modes: { CHARGE: true, IDLE: true } };
+      setSocCell(chargeRow.querySelector('.ch-soc'), tl, gapStart, gapEnd > 0 ? gapEnd - 1 : gapStart, p,
+        'sess-num ch-soc', 'car', noResOn);
+      setSocCell(chargeRow.querySelector('.ch-trl'), tl, gapStart, gapEnd > 0 ? gapEnd - 1 : gapStart, p,
+        'sess-num ch-trl', 'trailer', noResOn);
+    });
+
+    // Put away-missed skipped sessions after their trip origin (after drive-back block)
+    var dispOrder = UI.sessionDisplayOrder(sched, allTrips);
+    var byIdx = {};
+    table.querySelectorAll('tbody.sess-block').forEach(function (b) {
+      byIdx[+b.getAttribute('data-idx')] = b;
+    });
+    dispOrder.forEach(function (di) {
+      if (byIdx[di]) table.appendChild(byIdx[di]);
     });
   }
   function sessionTable() {
@@ -2993,6 +3428,61 @@ var UI = (function () {
     void block.offsetWidth;
     block.classList.add('sess-flash');
     setTimeout(function () { block.classList.remove('sess-flash'); }, 2000);
+  }
+  var awayToastTimer = null;
+  function showAwayToast(msg) {
+    var el = document.getElementById('sessToast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'sessToast';
+      el.className = 'sess-toast';
+      el.setAttribute('role', 'status');
+      document.body.appendChild(el);
+    }
+    el.textContent = msg || "You're not at the track during this session, so it can't run.";
+    el.classList.add('show');
+    if (awayToastTimer) clearTimeout(awayToastTimer);
+    awayToastTimer = setTimeout(function () {
+      el.classList.remove('show');
+      awayToastTimer = null;
+    }, 2800);
+  }
+  /**
+   * Fully-away "missed" sessions → uncheck as Skipped Session (user can try to re-enable;
+   * enable is blocked with a toast while still impossible).
+   * Returns true if the form was rewritten (caller should re-sim).
+   */
+  function applyAwayAutoSkip(result) {
+    if (!result || !result.metrics || !result.metrics.skippedSessions ||
+        !result.metrics.skippedSessions.length) return false;
+    var form = readSessionsFormRaw();
+    var changed = false;
+    result.metrics.skippedSessions.forEach(function (miss) {
+      for (var i = 0; i < form.length; i++) {
+        if (!form[i].enabled) continue;
+        if (UI.hhmmToMin(form[i].start) !== miss.startMin) continue;
+        form[i].enabled = false;
+        // Keep a charge mode for the unused hour
+        if (form[i].after == null || form[i].after === '') {
+          form[i].after = siteChargingAvailableFromDom() ? 'onsite' : 'none';
+        }
+        changed = true;
+      }
+    });
+    if (!changed) return false;
+    setSessionsForm(form);
+    return true;
+  }
+  /** Count SESSION minutes for schedule row idx in a simulate result. */
+  function sessionMinutesRun(result, sess) {
+    if (!result || !result.timeline || !sess) return 0;
+    var n = 0;
+    for (var i = 0; i < result.timeline.length; i++) {
+      var pt = result.timeline[i];
+      if (pt.mode !== 'SESSION') continue;
+      if (pt.min >= sess.startMin && pt.min < sess.endMin) n++;
+    }
+    return n;
   }
   /** When at-track charging becomes available, convert "No charging" gaps to Charge onsite. */
   function autoConvertNoneGapsToOnsite() {
@@ -3115,11 +3605,29 @@ var UI = (function () {
     table.querySelectorAll('.sess-enabled').forEach(function (el) {
       el.addEventListener('change', function () {
         var block = el.closest('tbody.sess-block');
+        var idx = block ? +block.getAttribute('data-idx') : -1;
         var raw = readSessionsFormRaw();
+        if (el.checked && idx >= 0 && raw[idx]) {
+          // Trying to enable: only allow if the car is present for at least part of the slot
+          raw[idx].enabled = true;
+          var tryVals = currentValues();
+          tryVals.sessions = UI.normalizeSessionsForm(raw);
+          var pTry = UI.readParams(tryVals);
+          pTry.capacityKwh = Sim.clampCapacityKwh(pTry.capacityKwh, pTry.chargeCurveId);
+          var rTry = Sim.simulate(pTry);
+          var schedTry = Sim.buildSchedule(pTry);
+          var mins = sessionMinutesRun(rTry, schedTry[idx]);
+          if (mins <= 0) {
+            el.checked = false;
+            showAwayToast("You're not at the track during this session, so it can't run.");
+            return;
+          }
+        }
         // Just disabled: default the unused hour to Charge onsite when available
-        if (!el.checked && siteChargingAvailableFromDom() && block) {
-          var idx = +block.getAttribute('data-idx');
-          if (raw[idx] && raw[idx].after !== 'offsite') raw[idx].after = 'onsite';
+        raw = readSessionsFormRaw();
+        if (!el.checked && siteChargingAvailableFromDom() && idx >= 0 && raw[idx] &&
+            raw[idx].after !== 'offsite') {
+          raw[idx].after = 'onsite';
         }
         setSessionsForm(raw);
         render();
@@ -3212,7 +3720,9 @@ var UI = (function () {
         enabled: !en || en.checked,
       };
       var after = block.querySelector('.sess-after');
-      // Skipped sessions also store after (charge mode for the unused hour)
+      var afterKeep = block.querySelector('input.sess-after-keep');
+      // Skipped sessions also store after (charge mode for the unused hour).
+      // When away on a trip, the select may be replaced by a label + hidden keep.
       if (after) {
         row.after = after.value || 'onsite';
         if (row.after === 'offsite') {
@@ -3223,6 +3733,8 @@ var UI = (function () {
           row.offsiteUntilSocPct = soc ? parseFloat(soc.value) : 80;
           row.offsiteForMin = mins ? parseFloat(mins.value) : 30;
         }
+      } else if (afterKeep && afterKeep.value) {
+        row.after = afterKeep.value;
       }
       rows.push(row);
     });
@@ -3418,9 +3930,9 @@ var UI = (function () {
             '</button>' +
           '</div>' +
           '<div class="sess-table-wrap"><table class="sess-table" id="sessionTable">' +
-          '<colgroup><col class="c-start"><col class="c-act"><col class="c-for">' +
+          '<colgroup><col class="c-start"><col class="c-act"><col class="c-end"><col class="c-for">' +
           '<col class="c-soc"><col class="c-trl"><col class="c-actn"></colgroup>' +
-          '<thead><tr><th>Start</th><th>Activity</th><th>For</th><th>Car SoC</th><th>Trailer SoC</th><th></th></tr></thead>' +
+          '<thead><tr><th>Start</th><th>Activity</th><th>End</th><th>For</th><th>Car SoC</th><th>Trailer SoC</th><th></th></tr></thead>' +
           '</table></div></div>';
         return html;
       }
@@ -4138,18 +4650,20 @@ var UI = (function () {
       ctx.fillRect(s.X(seg[0]), b.padT, Math.max(1, s.X(seg[1]) - s.X(seg[0])), H - b.padT - b.padB);
     });
 
-    // session bands: solid = ran; dashed outline = missed (away during offsite trip)
-    var skippedIdx = {};
-    result.metrics.skippedSessions.forEach(function (ss) { skippedIdx[ss.index] = true; });
+    // Session bands: solid for minutes actually run (full or partial); skip disabled
+    var runMinsChart = result.metrics.sessionRunMinutes || {};
+    var partialBy = {};
+    (result.metrics.partialSessions || []).forEach(function (ps) { partialBy[ps.index] = ps; });
     sessionBands(p).forEach(function (sess) {
-      var x0 = s.X(sess.startMin), w = Math.max(1, s.X(sess.endMin) - x0);
-      if (skippedIdx[sess.index]) {
-        ctx.strokeStyle = 'rgba(99,102,241,.5)'; ctx.lineWidth = 1; ctx.setLineDash([3, 2]);
-        ctx.strokeRect(x0, b.padT, w, H - b.padT - b.padB); ctx.setLineDash([]);
-      } else {
-        ctx.fillStyle = 'rgba(99,102,241,.16)';
-        ctx.fillRect(x0, b.padT, w, H - b.padT - b.padB);
-      }
+      if (sess.enabled === false) return;
+      var mins = runMinsChart[sess.index] || 0;
+      if (mins <= 0) return; // fully away — will auto-skip to unchecked
+      var partial = partialBy[sess.index];
+      var x0 = s.X(partial && partial.runFromMin != null ? partial.runFromMin : sess.startMin);
+      var x1 = s.X(partial && partial.runToMin != null ? partial.runToMin : sess.endMin);
+      var w = Math.max(1, x1 - x0);
+      ctx.fillStyle = 'rgba(99,102,241,.16)';
+      ctx.fillRect(x0, b.padT, w, H - b.padT - b.padB);
     });
     // reserve line
     if (p.sessionEndReserveKwh > 0 && p.capacityKwh > 0) {
@@ -4217,6 +4731,15 @@ var UI = (function () {
     }
     syncTrailerSocColumn(p);
     var result = Sim.simulate(p);
+    // Fully-away enabled sessions → uncheck as Skipped (then re-sim once)
+    if (applyAwayAutoSkip(result)) {
+      values = currentValues();
+      saveValues(values);
+      if (values.sessions) updateSessionsTitle(values.sessions.length);
+      p = UI.readParams(values);
+      p.capacityKwh = Sim.clampCapacityKwh(p.capacityKwh, p.chargeCurveId);
+      result = Sim.simulate(p);
+    }
     updateSessionsComputed(p, result);
     renderResult(p, result);
     UI.PROFILE_KINDS.forEach(updateDirty);

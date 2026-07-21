@@ -513,7 +513,28 @@ test('no NaN in timeline or metrics for messy plan', () => {
   assert.ok(isFinite(m.fromSuperchargerKwh));
 });
 
-test('late return after offsite marks enabled session as missed (no SESSION minutes)', () => {
+test('long offsite: skipped 1pm hour has no CHARGE while still at SC or driving back', () => {
+  // Drive 90 min each way; SC until 100%; 13:00 skipped with after=onsite is impossible to honor
+  // while away — engine must stay DRIVE/SC, not pretend onsite charge.
+  var x = sim([
+    { t: '09:00', after: 'onsite' },
+    { t: '10:00', after: 'onsite' },
+    { t: '11:00', after: 'offsite', stop: 'until', until: 100 },
+    { t: '13:00', en: false, after: 'onsite' },
+    { t: '14:00', after: 'onsite' },
+    { t: '15:00', after: 'onsite' },
+    { t: '16:00' },
+  ], { driveTimeMin: 90, driveConsumptionKwh: 30 });
+  var trip = x.r.metrics.trips[0];
+  assert.ok(trip);
+  assert.ok(trip.scEndMin >= 13 * 60, 'SC still running into 1pm hour, scEnd=' + trip.scEndMin);
+  assert.ok(trip.returnMin > 14 * 60, 'return after 2pm, return=' + trip.returnMin);
+  var m = modesIn(x.r, 13 * 60, 14 * 60);
+  assert.equal(m.CHARGE || 0, 0, 'no onsite CHARGE during 1pm while away: ' + JSON.stringify(m));
+  assert.ok((m.SC || 0) + (m.DRIVE || 0) > 50, JSON.stringify(m));
+});
+
+test('late return after offsite marks enabled session as fully missed (0 SESSION min)', () => {
   // Second offsite until 100% leaves after 1pm skip; returns after 2pm session window
   var x = sim([
     { t: '09:00', after: 'onsite' },
@@ -529,10 +550,38 @@ test('late return after offsite marks enabled session as missed (no SESSION minu
   assert.ok(t2.returnMin > 14 * 60 + 20, 'return after 2pm session ends, got ' + t2.returnMin);
   var miss14 = x.r.metrics.skippedSessions.some(function (s) { return s.startMin === 14 * 60; });
   assert.ok(miss14, '2pm must be in skippedSessions: ' + JSON.stringify(x.r.metrics.skippedSessions));
+  assert.equal(x.r.metrics.sessionRunMinutes[5] || 0, 0);
   var sess14 = x.r.timeline.filter(function (t) {
     return t.min >= 14 * 60 && t.min < 14 * 60 + 20 && t.mode === 'SESSION';
   }).length;
   assert.equal(sess14, 0, 'no SESSION minutes during 2pm while away');
+});
+
+test('return mid-session: partial SESSION minutes and prorated energy rate', () => {
+  // 9:20 leave, 50 min drive → SC 10:10, 5 min SC → leave 10:15, 50 min back → return 11:05
+  // into the 11:00–11:20 session (15 of 20 minutes)
+  var x = sim([
+    { t: '09:00', after: 'offsite', stop: 'for', for: 5 },
+    { t: '11:00', after: 'onsite' },
+    { t: '13:00' },
+  ], {
+    driveTimeMin: 50, driveConsumptionKwh: 20,
+    sessionDurationMin: 20, sessionEnergyKwh: 40,
+  });
+  var trip = x.r.metrics.trips[0];
+  assert.ok(trip && trip.returnMin != null);
+  var ret = trip.returnMin;
+  var sessStart = 11 * 60, sessEnd = 11 * 60 + 20;
+  assert.ok(ret > sessStart && ret < sessEnd, 'return mid-session, ret=' + ret);
+  var mins = x.r.metrics.sessionRunMinutes[2] || 0;
+  assert.equal(mins, 15);
+  assert.ok(x.r.metrics.partialSessions.some(function (ps) {
+    return ps.startMin === sessStart && ps.minutesRun === 15 && near(ps.energyKwh, 30, 1e-9);
+  }));
+  var carAtStart = pt(x.r, ret);
+  var carAtEnd = pt(x.r, sessEnd - 1);
+  var dKwh = (carAtStart.carPct - carAtEnd.carPct) / 100 * x.p.capacityKwh;
+  assert.ok(near(dKwh, 30, 3), 'prorated energy ~30 got ' + dKwh);
 });
 
 test('setSocCell preserves finder class so missed can overwrite prior SoC HTML', () => {
@@ -588,4 +637,297 @@ test('trailing hour idle when no site charging', () => {
   var m = modesIn(x.r, lastEnd, lastEnd + 60);
   assert.equal(m.CHARGE || 0, 0);
   assert.ok((m.IDLE || 0) > 30);
+});
+
+// ─── DaySM: activity priority + trip transitions ────────────────────────────
+
+test('DaySM is exported with phases, modes, and helpers', () => {
+  assert.ok(Sim.DaySM);
+  assert.deepEqual(Sim.DaySM.PHASES, ['idle', 'out', 'sc', 'back']);
+  assert.ok(Sim.DaySM.MODES.indexOf('SESSION') >= 0);
+  assert.ok(Sim.DaySM.MODES.indexOf('DRIVE') >= 0);
+  assert.ok(typeof Sim.DaySM.resolveActivityState === 'function');
+  assert.ok(typeof Sim.DaySM.canTransitionTrip === 'function');
+});
+
+test('DaySM trip transitions: only idle→out→sc→back→idle', () => {
+  var D = Sim.DaySM;
+  assert.equal(D.canTransitionTrip('idle', 'out'), true);
+  assert.equal(D.canTransitionTrip('out', 'sc'), true);
+  assert.equal(D.canTransitionTrip('sc', 'back'), true);
+  assert.equal(D.canTransitionTrip('back', 'idle'), true);
+  // Illegal jumps
+  assert.equal(D.canTransitionTrip('idle', 'sc'), false);
+  assert.equal(D.canTransitionTrip('idle', 'back'), false);
+  assert.equal(D.canTransitionTrip('out', 'idle'), false);
+  assert.equal(D.canTransitionTrip('out', 'back'), false);
+  assert.equal(D.canTransitionTrip('sc', 'out'), false);
+  assert.equal(D.canTransitionTrip('back', 'sc'), false);
+  // Stay in phase allowed
+  assert.equal(D.canTransitionTrip('out', 'out'), true);
+  assert.equal(D.canTransitionTrip('sc', 'sc'), true);
+});
+
+test('DaySM modeFromTripPhase maps out/back→DRIVE, sc→SC, idle→null', () => {
+  var D = Sim.DaySM;
+  assert.equal(D.modeFromTripPhase('out'), 'DRIVE');
+  assert.equal(D.modeFromTripPhase('back'), 'DRIVE');
+  assert.equal(D.modeFromTripPhase('sc'), 'SC');
+  assert.equal(D.modeFromTripPhase('idle'), null);
+});
+
+test('DaySM resolveActivityState: SESSION beats residual and gap', () => {
+  var D = Sim.DaySM;
+  assert.equal(D.resolveActivityState({
+    inSession: true, residualActive: true, canCharge: true, gapMode: 'none',
+  }), 'SESSION');
+});
+
+test('DaySM resolveActivityState: residual CHARGE even when gap is none', () => {
+  var D = Sim.DaySM;
+  assert.equal(D.resolveActivityState({
+    inSession: false, residualActive: true, canCharge: true, gapMode: 'none',
+  }), 'CHARGE');
+  // Without site power residual cannot invent CHARGE
+  assert.equal(D.resolveActivityState({
+    inSession: false, residualActive: true, canCharge: false, gapMode: 'none',
+  }), 'IDLE');
+});
+
+test('DaySM resolveActivityState: offsite gap at track → CHARGE if site can, else IDLE', () => {
+  var D = Sim.DaySM;
+  assert.equal(D.resolveActivityState({
+    inSession: false, residualActive: false, canCharge: true, gapMode: 'offsite',
+  }), 'CHARGE');
+  assert.equal(D.resolveActivityState({
+    inSession: false, residualActive: false, canCharge: false, gapMode: 'offsite',
+  }), 'IDLE');
+  assert.equal(D.resolveActivityState({
+    inSession: false, residualActive: false, canCharge: true, gapMode: 'onsite',
+  }), 'CHARGE');
+  assert.equal(D.resolveActivityState({
+    inSession: false, residualActive: false, canCharge: true, gapMode: 'none',
+  }), 'IDLE');
+});
+
+test('DaySM residualUntilAfterReturn caps at next enabled and next offsite leave', () => {
+  var D = Sim.DaySM;
+  var sessions = [
+    { enabled: false, startMin: 13 * 60 },
+    { enabled: true, startMin: 14 * 60 },
+    { enabled: true, startMin: 15 * 60 },
+  ];
+  // Return 12:30 → residual until 14:00 (first enabled ≥ return)
+  assert.equal(D.residualUntilAfterReturn(12 * 60 + 30, sessions, 15 * 60 + 20, null), 14 * 60);
+  // Next offsite leave at 13:00 caps residual
+  assert.equal(D.residualUntilAfterReturn(12 * 60 + 30, sessions, 15 * 60 + 20, 13 * 60), 13 * 60);
+  // Next leave already passed → residual ends immediately
+  assert.equal(D.residualUntilAfterReturn(13 * 60 + 5, sessions, 15 * 60 + 20, 13 * 60), 13 * 60 + 5);
+});
+
+test('DaySM scDone: for-min, until-SoC, and until-next leaveBy', () => {
+  var D = Sim.DaySM;
+  // for 20 min dwell
+  assert.equal(D.scDone({
+    t: 100, scStartMin: 90, eCar: 50, cap: 100,
+    stopMode: 'for', forMin: 20, driveTimeMin: 30, endMin: 1000,
+  }).done, false); // 11 min into SC
+  assert.equal(D.scDone({
+    t: 109, scStartMin: 90, eCar: 50, cap: 100,
+    stopMode: 'for', forMin: 20, driveTimeMin: 30, endMin: 1000,
+  }).done, true); // 20 min complete at t+1
+
+  // until SoC 80%
+  assert.equal(D.scDone({
+    t: 100, scStartMin: 90, eCar: 70, cap: 100,
+    stopMode: 'until', untilSocPct: 80, driveTimeMin: 30, endMin: 1000,
+  }).done, false);
+  assert.equal(D.scDone({
+    t: 100, scStartMin: 90, eCar: 80, cap: 100,
+    stopMode: 'until', untilSocPct: 80, driveTimeMin: 30, endMin: 1000,
+  }).done, true);
+
+  // until next: leave by mustReturnBy - driveTime
+  // mustReturnBy 600, drive 30 → leaveBy 570; at t=569 → t+1=570 done
+  assert.equal(D.scDone({
+    t: 568, scStartMin: 500, eCar: 40, cap: 100,
+    stopMode: 'next', mustReturnBy: 600, driveTimeMin: 30, endMin: 1000,
+  }).done, false);
+  assert.equal(D.scDone({
+    t: 569, scStartMin: 500, eCar: 40, cap: 100,
+    stopMode: 'next', mustReturnBy: 600, driveTimeMin: 30, endMin: 1000,
+  }).done, true);
+});
+
+test('DaySM tryStartTrip only from idle when queue ready', () => {
+  var D = Sim.DaySM;
+  var trip = { phase: 'idle', residualUntilMin: 999 };
+  var q = [{ gapStart: 100, sessionIndex: 2, originIndex: 1 }];
+  assert.equal(D.tryStartTrip(trip, q, 50, 30), false); // too early
+  assert.equal(trip.phase, 'idle');
+  assert.equal(D.tryStartTrip(trip, q, 100, 30), true);
+  assert.equal(trip.phase, 'out');
+  assert.equal(trip.driveEndMin, 130);
+  assert.equal(trip.residualUntilMin, null);
+  assert.equal(q.length, 0);
+  // already on trip
+  assert.equal(D.tryStartTrip(trip, [{ gapStart: 0 }], 200, 30), false);
+});
+
+test('simulate never emits CHARGE/SESSION while trip phase is away (timeline modes)', () => {
+  var x = sim([
+    { t: '09:00', after: 'offsite', stop: 'until', until: 100 },
+    { t: '13:00', en: false, after: 'onsite' },
+    { t: '14:00' },
+  ], { driveTimeMin: 40, driveConsumptionKwh: 15 });
+  var trip = x.r.metrics.trips[0];
+  assert.ok(trip && trip.returnMin != null);
+  x.r.timeline.forEach(function (pt) {
+    if (pt.min >= trip.departMin && pt.min < trip.returnMin) {
+      assert.ok(pt.mode === 'DRIVE' || pt.mode === 'SC',
+        'while away mode=' + pt.mode + ' at ' + pt.min);
+    }
+  });
+});
+
+// ─── UI trip window layout (DOM row order) ──────────────────────────────────
+
+test('layoutTripWindowSegments: drive-back then residual never puts charge above back', () => {
+  // Reproduce dump "Track Charging Simulator 8": return 2:24 under the 2pm skip window.
+  // DOM order is Drive out → Charge → Drive back → Wait. Residual after a same-window
+  // drive-back must use waitSeg only (not chargePadSeg), so 2:24 charge is not above 2:00 back.
+  var trip = {
+    departMin: 11 * 60 + 20,
+    scStartMin: 12 * 60 + 20,
+    scEndMin: 13 * 60 + 24,
+    returnMin: 14 * 60 + 24,
+    residualUntilMin: 15 * 60,
+  };
+  var winStart = 14 * 60, winEnd = 15 * 60; // 2pm skipped hour
+  var segs = UI.layoutTripWindowSegments(trip, winStart, winEnd, { driveTimeMin: 60 });
+  assert.equal(segs.scSeg, null);
+  assert.equal(segs.chargePadSeg, null, 'must not put residual on charge row above drive-back');
+  assert.ok(segs.backSeg, 'drive back continues into 2pm window');
+  assert.equal(segs.backSeg.a, 14 * 60);
+  assert.equal(segs.backSeg.b, 14 * 60 + 24);
+  assert.ok(segs.waitSeg, 'residual after return on wait row');
+  assert.equal(segs.waitSeg.a, 14 * 60 + 24);
+  assert.equal(segs.waitSeg.b, 15 * 60);
+  // Chronological: back starts before wait
+  assert.ok(segs.backSeg.a < segs.waitSeg.a);
+});
+
+test('layoutTripWindowSegments: residual-only window uses charge row (no drive-back)', () => {
+  var trip = {
+    departMin: 11 * 60 + 20,
+    scStartMin: 12 * 60,
+    scEndMin: 12 * 60 + 30,
+    returnMin: 13 * 60, // back by 1pm
+    residualUntilMin: 15 * 60,
+  };
+  // 2pm window: only residual left
+  var segs = UI.layoutTripWindowSegments(trip, 14 * 60, 15 * 60, { driveTimeMin: 30 });
+  assert.equal(segs.backSeg, null);
+  assert.equal(segs.waitSeg, null);
+  assert.ok(segs.chargePadSeg);
+  assert.equal(segs.chargePadSeg.a, 14 * 60);
+  assert.equal(segs.chargePadSeg.b, 15 * 60);
+});
+
+test('layoutTripWindowSegments: SC then drive-back order (1pm skip mid-return)', () => {
+  var trip = {
+    departMin: 11 * 60 + 20,
+    scStartMin: 12 * 60 + 20,
+    scEndMin: 13 * 60 + 24,
+    returnMin: 14 * 60 + 24,
+    residualUntilMin: 15 * 60,
+  };
+  var segs = UI.layoutTripWindowSegments(trip, 13 * 60, 14 * 60, { driveTimeMin: 60 });
+  assert.ok(segs.scSeg);
+  assert.equal(segs.scSeg.a, 13 * 60);
+  assert.equal(segs.scSeg.b, 13 * 60 + 24);
+  assert.ok(segs.backSeg);
+  assert.equal(segs.backSeg.a, 13 * 60 + 24);
+  assert.equal(segs.backSeg.b, 14 * 60);
+  assert.equal(segs.chargePadSeg, null);
+  assert.equal(segs.waitSeg, null); // return after this window
+  assert.ok(segs.scSeg.a < segs.backSeg.a);
+});
+
+test('continueActivityLabel prefixes Continue when activity started earlier', () => {
+  assert.equal(UI.continueActivityLabel('Drive back', 13 * 60 + 24, 14 * 60),
+    'Continue drive back');
+  assert.equal(UI.continueActivityLabel('Charge offsite', 12 * 60 + 20, 13 * 60),
+    'Continue charge offsite');
+  assert.equal(UI.continueActivityLabel('Charge onsite', 14 * 60 + 24, 15 * 60),
+    'Continue charge onsite');
+  assert.equal(UI.continueActivityLabel('Drive to Tumwater', 11 * 60 + 20, 12 * 60),
+    'Continue drive to Tumwater');
+  // First appearance in this window — no prefix
+  assert.equal(UI.continueActivityLabel('Drive back', 14 * 60, 14 * 60), 'Drive back');
+  assert.equal(UI.continueActivityLabel('Charge offsite', 13 * 60, 13 * 60), 'Charge offsite');
+  assert.equal(UI.continueActivityLabel('Drive back', 14 * 60 + 10, 14 * 60), 'Drive back');
+});
+
+test('layoutFullTripSegments keeps full drive/SC/back without window splits', () => {
+  var trip = {
+    departMin: 11 * 60 + 20,
+    scStartMin: 12 * 60 + 20,
+    scEndMin: 13 * 60 + 24,
+    returnMin: 14 * 60 + 24,
+    residualUntilMin: 15 * 60,
+  };
+  var segs = UI.layoutFullTripSegments(trip, { driveTimeMin: 60 });
+  assert.deepEqual(segs.outSeg, { a: 11 * 60 + 20, b: 12 * 60 + 20 });
+  assert.deepEqual(segs.scSeg, { a: 12 * 60 + 20, b: 13 * 60 + 24 });
+  assert.deepEqual(segs.backSeg, { a: 13 * 60 + 24, b: 14 * 60 + 24 });
+  assert.deepEqual(segs.waitSeg, { a: 14 * 60 + 24, b: 15 * 60 });
+  assert.equal(segs.chargePadSeg, null);
+});
+
+test('sessionDisplayOrder moves away-missed skips after trip origin', () => {
+  // 9,10 enabled; 11 origin offsite; 13,14 disabled during trip; 15 enabled
+  var sched = [
+    { index: 1, startMin: 9 * 60, enabled: true },
+    { index: 2, startMin: 10 * 60, enabled: true },
+    { index: 3, startMin: 11 * 60, enabled: true },
+    { index: 4, startMin: 13 * 60, enabled: false },
+    { index: 5, startMin: 14 * 60, enabled: false },
+    { index: 6, startMin: 15 * 60, enabled: true },
+  ];
+  var trips = [{
+    originIndex: 3,
+    departMin: 11 * 60 + 20,
+    returnMin: 14 * 60 + 24,
+  }];
+  assert.equal(UI.isAwayMissedSession(sched[3], trips), true);
+  assert.equal(UI.isAwayMissedSession(sched[4], trips), true);
+  assert.equal(UI.isAwayMissedSession(sched[2], trips), false);
+  var order = UI.sessionDisplayOrder(sched, trips);
+  // 0,1,2 (9/10/11) then missed 13+14 (idx 3,4) then 15 (idx 5)
+  assert.deepEqual(order, [0, 1, 2, 3, 4, 5]);
+  // Chronological would also be that — use return before 14 so 14 is missed but
+  // 15 stays after; move 13+14 after origin even if a later enabled is between them
+  // in time… already after origin. Force 15 between in schedule with early return:
+  trips[0].returnMin = 13 * 60 + 30; // back mid-1pm hour
+  // 14:00 still after return → not away-missed; 13:00 is away-missed
+  assert.equal(UI.isAwayMissedSession(sched[3], trips), true); // 13:00
+  assert.equal(UI.isAwayMissedSession(sched[4], trips), false); // 14:00 after return
+  order = UI.sessionDisplayOrder(sched, trips);
+  // 9,10,11, then missed 13, then 14,15
+  assert.deepEqual(order, [0, 1, 2, 3, 4, 5]);
+
+  // Insert an enabled 12:00 so chronological has miss between sessions
+  sched = [
+    { index: 1, startMin: 11 * 60, enabled: true },
+    { index: 2, startMin: 12 * 60, enabled: true }, // would be after origin in time but
+    { index: 3, startMin: 13 * 60, enabled: false },
+    { index: 4, startMin: 15 * 60, enabled: true },
+  ];
+  // Trip from 11 covers 13 skip; 12 enabled stays in place chronologically before we
+  // would list misses — display: origin 11, miss 13, then 12, 15? User wants misses
+  // after drive-back (origin), so: 11, 13, 12, 15
+  trips = [{ originIndex: 1, departMin: 11 * 60 + 20, returnMin: 14 * 60 }];
+  order = UI.sessionDisplayOrder(sched, trips);
+  assert.deepEqual(order, [0, 2, 1, 3], 'missed 13 after origin 11, before later 12/15');
 });

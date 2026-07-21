@@ -30,6 +30,17 @@ test('layout shell has inputs, session table, and result panel', () => {
   assert.ok(!/id="runS1"/.test(html));
 });
 
+test('session table has End column immediately before For', () => {
+  assert.ok(/<th>Start<\/th><th>Activity<\/th><th>End<\/th><th>For<\/th>/.test(html));
+  assert.ok(/class="c-end"/.test(html));
+  // Row templates include end cells before duration cells
+  assert.ok(/sess-end/.test(html));
+  assert.ok(/ch-end/.test(html));
+  assert.ok(/do-end/.test(html));
+  assert.ok(/db-end/.test(html));
+  assert.ok(/wt-end/.test(html));
+});
+
 test('UI_FIELDS ids are unique', () => {
   const ids = loadUI().UI_FIELDS.map(f => f.id);
   assert.equal(new Set(ids).size, ids.length);
