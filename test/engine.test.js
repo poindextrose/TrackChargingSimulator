@@ -73,11 +73,15 @@ test('defaultParams: every session is a run; after 11am is offsite', () => {
   var p = Sim.defaultParams();
   assert.equal(p.sessionDurationMin, 20);
   assert.equal(p.towingCostKwh, 4);
-  assert.equal(p.driveConsumptionKwh, 14);
+  assert.equal(p.driveConsumptionKwh, 13);
+  assert.equal(p.scName, 'Tumwater');
+  assert.equal(p.trailerCapKwh, 40);
   assert.equal(p.sessions.length, 7);
   assert.deepEqual(p.sessions.map(s => s.startMin), [9*60, 10*60, 11*60, 13*60, 14*60, 15*60, 16*60]);
   assert.equal(p.sessions.find(s => s.startMin === 11 * 60).after, 'offsite');
-  assert.ok(p.sessions.filter(s => s.startMin !== 11 * 60 && s.startMin !== 16 * 60)
+  assert.equal(p.sessions.find(s => s.startMin === 13 * 60).enabled, false);
+  // Enabled non-last non-offsite gaps are onsite (9, 10, 14, 15)
+  assert.ok(p.sessions.filter(s => s.enabled !== false && s.startMin !== 11 * 60 && s.startMin !== 16 * 60)
     .every(s => s.after === 'onsite'));
   assert.equal(p.sessions.find(s => s.startMin === 16 * 60).after, undefined);
   assert.equal('supercharge' in p, false);
@@ -142,6 +146,24 @@ test('siteSources: grid EV connector excludes gen and battery', () => {
   assert.equal(src.battery, false);
 });
 
+test('siteSources: onsite grid works when portable panel is off', () => {
+  var src = Sim.siteSources({
+    siteChargingEnabled: false,
+    gridEnabled: true,
+    genEnabled: true,
+    batteryEnabled: true,
+  });
+  assert.equal(src.grid, true);
+  assert.equal(src.gen, false);
+  assert.equal(src.battery, false);
+  assert.equal(Sim.siteCanCharge({
+    siteChargingEnabled: false, gridEnabled: true,
+  }), true);
+  assert.equal(Sim.siteCanCharge({
+    siteChargingEnabled: false, gridEnabled: false, genEnabled: true, batteryEnabled: true,
+  }), false);
+});
+
 test('chargeDelivery: mid-SoC is governed by the 40 kW DC-DC cap', () => {
   var r = Sim.chargeDelivery(50, 60, 50, Sim.defaultParams());
   assert.ok(Math.abs(r.deliverKw - 40) < 1e-6);
@@ -200,7 +222,9 @@ test('chargeDelivery: AC-DC only applies when both gen and battery are on', () =
 
 test('chargeDelivery: trailer cannot discharge below its minimum SoC floor', () => {
   var p = Sim.defaultParams();
-  var atFloor = Sim.chargeDelivery(50, 60, 2.5, p);
+  // Floor = minTrailerSocPct% of trailerCapKwh (default 5% of 40 kWh = 2.0)
+  var floorKwh = p.minTrailerSocPct / 100 * p.trailerCapKwh;
+  var atFloor = Sim.chargeDelivery(50, 60, floorKwh, p);
   assert.ok(Math.abs(atFloor.fromTrailerBusKw - 0) < 1e-6);
 });
 
@@ -293,8 +317,8 @@ test('until-next-session leaves in time for the following session', () => {
   });
   var r = Sim.simulate(p);
   assert.ok(r.metrics.sc && r.metrics.sc.returnMin != null);
-  // Next enabled session after 11 is 13:00
-  assert.ok(r.metrics.sc.returnMin <= 13 * 60);
+  // Next enabled session after 11 is 14:00 (13:00 is skipped in the default Ridge plan)
+  assert.ok(r.metrics.sc.returnMin <= 14 * 60);
 });
 
 test('every run session that runs is whole', () => {

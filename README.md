@@ -1,34 +1,38 @@
 # Track Charging Simulator
 
-A single-file, fully offline planning tool for sizing a portable DC fast-charging
-trailer (LFP battery + gasoline generator) used to charge a Tesla Model S Plaid during
-HPDE track days where there is no charging infrastructure. The Plaid tows the trailer in.
+A single-file, fully offline planning tool for sizing portable DC fast-charging
+(trailer battery + generator) and/or onsite EV connectors used to charge a Tesla
+(Plaid, Model 3 Performance, or custom) during HPDE track days.
 
-The tool models the Plaid's state of charge minute-by-minute across a track day for one
-configurable day-plan. Two checkbox controls shape the day:
+Model car state of charge minute-by-minute across a configurable track day plan
+with **onsite**, **portable**, and **offsite** charging options between sessions.
 
-- **Supercharge after session 3** — drive to a Supercharger after the third session, charge to a target SoC, and drive back. This is **mutually exclusive with the 1pm session**: while you're away you can't run it, so the 1pm is skipped (the 1pm checkbox locks off). On by default.
-- **Sessions** — a checkbox per session (9:00 … 4:00); checked = run it, unchecked = skip it (no energy drawn, no cooling — the car charges in that slot instead). By default every session is checked except the 1pm (skipped, since the default plan supercharges over lunch).
+**Live site:** https://poindextrose.github.io/TrackChargingSimulator/
 
-So the default plan supercharges over lunch and runs the other six sessions; uncheck the
-supercharge and check the 1pm to run the full seven on trailer power, or uncheck any session
-to drop it. You vary the parameters (battery size, generator power, charge rate, efficiencies,
-fuel burn, towing/cooling cost, **minimum trailer SoC**, etc.) and watch how SoC, feasibility,
-and gas usage change — so you can decide what to build before committing to hardware.
+## Defaults
+
+Shipped with example profiles (export `track-charging-profiles-2026-07-21.json`):
+
+| Kind | Profiles |
+|------|----------|
+| **EV** | My Plaid, Tesla Model 3 Performance |
+| **Track** | Ridge Motorsports Park (default), Qlispe Raceway Park, Example track with wall connector |
+| **Portable** | Trailer battery + generator (default), Generator + wall connector, 9.6kW connector |
 
 ## Usage
 
-Open `index.html` in any browser (Mac / iPad / phone). No install, no server, no
-network connection required. Adjust the inputs (and the supercharge / session checkboxes) and
-the day recomputes live. Your inputs are saved in the browser, so a refresh keeps them;
-**Reset** returns to defaults. Hover the chart to read the Plaid and trailer state of charge
-at any moment; skipped sessions show as hollow (dashed) bands. A **per-session table** below
-the chart lists each session's Plaid and trailer SoC from start to end.
+Open `index.html` in any browser (Mac / iPad / phone), or use the live site above.
+No install or network required for local use.
 
-## Design
+- Adjust car, track, and portable profiles; the day recomputes live
+- Inputs and profiles are saved in the browser; **Reset** reloads the active profile
+- **Export / Import** shares profile packs as JSON
+- Hover the chart for SoC at any minute; the session table shows per-block SoC ranges
 
-The full energy model, the Model S Plaid Supercharger charge curve, and the simulation
-algorithm are documented in
-[`docs/superpowers/specs/2026-06-07-track-charging-simulator-design.md`](docs/superpowers/specs/2026-06-07-track-charging-simulator-design.md).
+## Development
 
-> **Status:** complete — open `index.html` in any browser. Run `node --test` to verify the engine and UI logic.
+```bash
+node --test
+```
+
+Design notes: [`docs/superpowers/specs/2026-06-07-track-charging-simulator-design.md`](docs/superpowers/specs/2026-06-07-track-charging-simulator-design.md).

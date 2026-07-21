@@ -128,6 +128,29 @@ test('hhmmToMin / minToHHMM round-trip', () => {
   assert.equal(UI.minToHHMM(480), '08:00');
 });
 
+test('minToAmPm formats 12-hour times for intermediate rows', () => {
+  const UI = loadUI();
+  assert.equal(UI.minToAmPm(0), '12:00 AM');
+  assert.equal(UI.minToAmPm(480), '8:00 AM');
+  assert.equal(UI.minToAmPm(12 * 60 + 30), '12:30 PM');
+  assert.equal(UI.minToAmPm(13 * 60 + 5), '1:05 PM');
+  assert.equal(UI.minToAmPm(23 * 60 + 59), '11:59 PM');
+});
+
+// Regression: switching track with site off → track with site on used to demote
+// stored "onsite" gaps to "none" because sessions were built before site enable.
+test('applyTrackProfile restores site enable before building session gap selects', () => {
+  const src = html.match(/function applyTrackProfile\([\s\S]*?\n  \}/)[0];
+  // Ignore comments; match the assignment / call that actually run.
+  const siteEnableAt = src.search(/vals\.siteChargingEnabled/);
+  const sessionsAt = src.search(/setSessionsForm\s*\(/);
+  assert.ok(siteEnableAt >= 0, 'sets siteChargingEnabled');
+  assert.ok(sessionsAt >= 0, 'calls setSessionsForm');
+  assert.ok(siteEnableAt < sessionsAt, 'site enable must come before session rows');
+  // Must not rebuild sessions via applyProfileValues('track') which would run too early
+  assert.ok(!/applyProfileValues\(\s*['"]track['"]/.test(src));
+});
+
 test('formatMetrics rows include fuel and sessions run', () => {
   const UI = loadUI();
   const Sim = loadSim();
@@ -157,23 +180,80 @@ test('chartScale maps domain to canvas box', () => {
 test('builtin track profile has after-gap session plan and drive-in costs', () => {
   const UI = loadUI();
   const bp = UI.builtinProfiles();
-  const track = bp.tracks[0].values;
+  assert.equal(bp.tracks.length, 3);
+  assert.equal(bp.sites.length, 3);
+  assert.equal(bp.activeTrackId, UI.BUILTIN_TRACK_ID);
+  assert.equal(bp.activeSiteId, UI.BUILTIN_SITE_ID);
+  const track = bp.tracks.find(t => t.id === UI.BUILTIN_TRACK_ID).values;
   const sess = track.sessions;
   assert.equal(sess.length, 7);
   assert.equal(sess.find(s => s.start === '11:00').after, 'offsite');
+  assert.equal(sess.find(s => s.start === '11:00').offsiteStop, 'until');
+  assert.equal(sess.find(s => s.start === '13:00').enabled, false);
+  assert.equal(sess.find(s => s.start === '14:00').enabled, true);
   assert.ok(!('after' in sess.find(s => s.start === '16:00')));
   assert.ok(sess.every(s => !s.action && !s.before));
   assert.equal(track.arrivalCostNoTrailerKwh, '13');
   assert.equal(track.towingCostKwh, '4');
+  assert.equal(track.scName, 'Tumwater');
+  assert.equal(track.driveConsumptionKwh, '13');
+  // Onsite charging lives on the track profile, not portable site
+  assert.ok(UI.TRACK_FIELD_IDS.includes('gridEnabled'));
+  assert.ok(UI.TRACK_FIELD_IDS.includes('gridPowerKw'));
+  assert.ok(!UI.SITE_FIELD_IDS.includes('gridEnabled'));
+  assert.ok(!UI.SITE_FIELD_IDS.includes('gridPowerKw'));
+  assert.equal(track.gridEnabled, false);
+  assert.equal(String(track.gridPowerKw), '11.5');
+  assert.ok(!('gridEnabled' in bp.sites[0].values));
+  assert.equal(UI.PROFILE_META.site.label, 'Portable Charging');
+  assert.equal(bp.sites.find(s => s.id === UI.BUILTIN_SITE_ID).name, 'Trailer battery + generator');
+  assert.equal(String(bp.sites.find(s => s.id === UI.BUILTIN_SITE_ID).values.trailerCapKwh), '40');
+  assert.ok(bp.tracks.some(t => t.id === UI.BUILTIN_TRACK_QLISPE_ID));
+  assert.ok(bp.tracks.some(t => t.id === UI.BUILTIN_TRACK_WALL_ID));
 });
 
-test('builtin cars include Plaid and Model 3 Performance with charge curves', () => {
+test('normalizeProfiles migrates onsite grid from site onto track', () => {
+  const UI = loadUI();
+  const bp = UI.builtinProfiles();
+  const reloaded = UI.normalizeProfiles({
+    cars: bp.cars,
+    activeCarId: bp.activeCarId,
+    tracks: [{
+      id: bp.tracks[0].id,
+      name: bp.tracks[0].name,
+      builtin: true,
+      values: {
+        sessions: bp.tracks[0].values.sessions,
+        siteProfileId: bp.sites[0].id,
+        // no gridEnabled on track — pre-migration shape
+      },
+    }],
+    activeTrackId: bp.activeTrackId,
+    sites: [{
+      id: bp.sites[0].id,
+      name: bp.sites[0].name,
+      builtin: true,
+      values: Object.assign({}, bp.sites[0].values, {
+        gridEnabled: true,
+        gridPowerKw: '22',
+      }),
+    }],
+    activeSiteId: bp.activeSiteId,
+  });
+  assert.equal(reloaded.tracks[0].values.gridEnabled, true);
+  assert.equal(String(reloaded.tracks[0].values.gridPowerKw), '22');
+  assert.ok(!('gridEnabled' in reloaded.sites[0].values));
+});
+
+test('builtin cars include My Plaid and Model 3 Performance with charge curves', () => {
   const UI = loadUI();
   const bp = UI.builtinProfiles();
   assert.ok(bp.cars.length >= 2);
+  assert.equal(bp.activeCarId, UI.BUILTIN_CAR_ID);
   const plaid = bp.cars.find(c => c.id === UI.BUILTIN_CAR_ID);
   const m3p = bp.cars.find(c => c.id === UI.BUILTIN_CAR_M3P_ID);
   assert.ok(plaid);
+  assert.equal(plaid.name, 'My Plaid');
   assert.ok(m3p);
   assert.equal(plaid.values.chargeCurveId, 'model-s-plaid');
   assert.equal(plaid.values.capacityKwh, '99.4');

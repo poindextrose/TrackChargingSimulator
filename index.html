@@ -46,11 +46,14 @@
                  border:1px solid var(--line); border-radius:10px; }
   .section-row[data-section="car"] { border-left:3px solid var(--car); }
   .section-row[data-section="track"] { border-left:3px solid var(--accent); }
-  /* Nested panels inside Track (Site Charging, Offsite Charging) */
+  /* Nested panels inside Track (Onsite / Portable / Offsite Charging) */
   .track-panel {
     margin-top:8px; padding:10px 12px; border:1px solid var(--line); border-radius:8px;
   }
-  .track-panel.track-site {
+  .track-panel.track-onsite {
+    border-left:3px solid #a78bfa; background:rgba(167,139,250,.06);
+  }
+  .track-panel.track-portable {
     border-left:3px solid var(--trl); background:rgba(59,130,246,.04);
   }
   .track-panel.track-offsite {
@@ -71,10 +74,21 @@
     color:var(--txt); user-select:none;
   }
   .track-panel .panel-enable input { margin:0; width:auto; accent-color:var(--accent); cursor:pointer; }
-  .track-panel.is-off .track-panel-body { opacity:.4; pointer-events:none; }
-  .track-panel.is-off .section-head { opacity:.4; pointer-events:none; }
-  /* Keep enable checkbox interactive when panel is off */
-  .track-panel.is-off > .panel-enable { opacity:1; pointer-events:auto; }
+  /* Disabled panels: mute accent + grey body; enable checkbox stays clickable */
+  .track-panel.is-off {
+    border-left-color: #3a4150 !important;
+    background: rgba(0,0,0,.14) !important;
+  }
+  .track-panel.is-off .track-panel-body {
+    opacity:.38; filter:grayscale(.65); pointer-events:none;
+  }
+  .track-panel.is-off .section-head {
+    opacity:.38; filter:grayscale(.65); pointer-events:none;
+  }
+  .track-panel.is-off > .panel-enable {
+    color:#5c6370; opacity:.72; pointer-events:auto; filter:none;
+  }
+  .track-panel.is-off > .panel-enable input { opacity:.7; }
   .track-panel .subgrp:first-of-type { margin-top:0; padding-top:0; border-top:none; }
   /* EV / TRACK: profile select + ⋯ menu */
   .section-head { display:flex; flex-wrap:nowrap; gap:6px; align-items:center; min-width:0;
@@ -205,10 +219,16 @@
                    font-size:10px; text-transform:uppercase; letter-spacing:.04em;
                    color:var(--mut); font-weight:600; user-select:none; white-space:nowrap; }
   .subgrp-enable input { margin:0; width:auto; accent-color:var(--accent); cursor:pointer; }
-  .subgrp.is-off .grp-fields { opacity:.4; }
-  .subgrp.is-off .grp-fields input:not([type="checkbox"]),
-  .subgrp.is-off .grp-fields select { pointer-events:none; }
-  .fld.is-disabled { opacity:.4; }
+  /* Disabled Generator / Battery (etc.): grey fields; enable stays usable */
+  .subgrp.is-off {
+    opacity:1;
+  }
+  .subgrp.is-off .grp-fields {
+    opacity:.38; filter:grayscale(.65); pointer-events:none;
+  }
+  .subgrp.is-off .subgrp-enable { color:#5c6370; opacity:.72; }
+  .subgrp.is-off .subgrp-enable input { opacity:.7; }
+  .fld.is-disabled { opacity:.38; filter:grayscale(.5); }
   .fld.is-disabled input,
   .fld.is-disabled select { pointer-events:none; }
   .icon-btn { display:inline-flex; align-items:center; justify-content:center;
@@ -307,6 +327,19 @@
   table.sess-table .soc-range.sess-bad .soc-a,
   table.sess-table .soc-range.sess-bad .soc-arrow,
   table.sess-table .soc-range.sess-bad .soc-b { color: var(--bad) !important; }
+  /* Negative SoC: cannot-miss critical (any row, including drive) */
+  table.sess-table .soc-range.sess-neg,
+  table.sess-table .soc-range.sess-neg .soc-a,
+  table.sess-table .soc-range.sess-neg .soc-arrow,
+  table.sess-table .soc-range.sess-neg .soc-b {
+    color: #fff !important;
+    font-weight: 800;
+    background: #ff0033;
+    box-shadow: 0 0 0 1px #ff0033, 0 0 10px rgba(255, 0, 51, 0.85);
+    border-radius: 3px;
+    padding: 0 0.3em;
+  }
+  table.sess-table .sess-neg { color: #ff0033; font-weight: 800; }
   /* Flash a session block after auto-sort so the new position is obvious */
   @keyframes sessFlash {
     0% { background-color: rgba(99, 102, 241, 0.42); }
@@ -483,13 +516,14 @@ var Sim = (function () {
   // First gap (arrival→first) defaults to onsite when site charging is available.
   var GAP_ACTIONS = ['onsite', 'offsite', 'none'];
   function defaultSessionPlan() {
+    // Ridge Motorsports Park default day (published profile defaults)
     return [
       { startMin: 9 * 60, enabled: true, after: 'onsite' },
       { startMin: 10 * 60, enabled: true, after: 'onsite' },
-      // Default offsite: charge nearly full (may miss next session); UI also offers next/for
+      // Offsite over lunch: charge to 100%
       { startMin: 11 * 60, enabled: true, after: 'offsite', offsiteStop: 'until',
         offsiteUntilSocPct: 100, offsiteForMin: 30 },
-      { startMin: 13 * 60, enabled: true, after: 'onsite' },
+      { startMin: 13 * 60, enabled: false },
       { startMin: 14 * 60, enabled: true, after: 'onsite' },
       { startMin: 15 * 60, enabled: true, after: 'onsite' },
       { startMin: 16 * 60, enabled: true }, // last: no after
@@ -562,25 +596,26 @@ var Sim = (function () {
     coolingPerGapKwh: 6,
     preSessionCoolingKwh: 5,
     // Track feature toggles (also stored on track profiles)
-    siteChargingEnabled: true,
+    siteChargingEnabled: true, // portable gen/battery panel
     offsiteChargingEnabled: true,
-    // Site sources: portable gen+battery OR track EV connector (mutually exclusive modes).
+    // Onsite charging (track-owned EV connector) — exclusive of portable when both on
+    gridEnabled: false,
+    gridPowerKw: 11.5,
+    // Portable charging sources (site profile)
     genEnabled: true,
     batteryEnabled: true,
-    gridEnabled: false,
-    trailerCapKwh: 50,
+    trailerCapKwh: 40, // default portable trailer (site profile)
     genPowerKw: 13,
     genFuelType: 'gasoline', // 'gasoline' | 'propane'
     acdcEff: 0.94,
     fuelBurnGalPerHr: 1.3,
     dcPowerKw: 40,
     dcdcEff: 0.95,
-    gridPowerKw: 11.5, // track EV connector power (kW)
     sessionEndReserveKwh: 20,
     sessions: defaultSessionPlan(),
     driveTimeMin: 30,
-    driveConsumptionKwh: 14,
-    scName: 'Supercharger',
+    driveConsumptionKwh: 13, // Ridge → Tumwater one-way
+    scName: 'Tumwater',
     scPowerCapKw: 250,
     minTrailerSocPct: 5,
   };
@@ -611,21 +646,22 @@ var Sim = (function () {
     return GAP_ACTIONS.indexOf(a) >= 0 ? a : 'onsite';
   }
 
-  /** Effective site sources: grid EV connector is exclusive of gen/battery. */
+  /**
+   * Effective charge sources at the track.
+   * Onsite (grid EV connector) is track-owned and independent of portable enable.
+   * Portable gen/battery are gated by siteChargingEnabled; exclusive of onsite when both would be on.
+   */
   function siteSources(p) {
-    if (p && p.siteChargingEnabled === false) {
-      return { grid: false, gen: false, battery: false };
-    }
-    var grid = !!p.gridEnabled;
+    var grid = !!(p && p.gridEnabled);
+    var portableOn = !(p && p.siteChargingEnabled === false);
     return {
       grid: grid,
-      gen: !grid && !!p.genEnabled,
-      battery: !grid && !!p.batteryEnabled,
+      gen: !grid && portableOn && !!(p && p.genEnabled),
+      battery: !grid && portableOn && !!(p && p.batteryEnabled),
     };
   }
-  /** True when any site source can deliver energy to the car. */
+  /** True when any onsite or portable source can deliver energy to the car. */
   function siteCanCharge(p) {
-    if (p && p.siteChargingEnabled === false) return false;
     var src = siteSources(p);
     return !!(src.grid || src.gen || src.battery);
   }
@@ -1110,27 +1146,41 @@ var UI = (function () {
     var h = Math.floor(m / 60), mm = m % 60;
     return (h < 10 ? '0' : '') + h + ':' + (mm < 10 ? '0' : '') + mm;
   }
+  /** Display minutes-from-midnight as 12-hour clock, e.g. "9:00 AM", "1:30 PM". */
+  function minToAmPm(m) {
+    m = Math.round(+m);
+    if (!isFinite(m)) return '—';
+    // Normalize into a single day for display (engine can go past midnight)
+    m = ((m % 1440) + 1440) % 1440;
+    var h24 = Math.floor(m / 60);
+    var mm = m % 60;
+    var ap = h24 >= 12 ? 'PM' : 'AM';
+    var h12 = h24 % 12;
+    if (h12 === 0) h12 = 12;
+    return h12 + ':' + (mm < 10 ? '0' : '') + mm + ' ' + ap;
+  }
 
   // group, id, label, default (in display units), step, unit, kind, set(out,value)
   var num = function (key, mul) {
     return function (out, v) { out[key] = (mul == null ? 1 : mul) * parseFloat(v); };
   };
   // EV = vehicle model (charge curve) + usable capacity + on-track energy.
-  // Track = schedule, drive-in costs, offsite charger.
-  // Site = portable trailer/generator + DC charge hardware at the track.
+  // Track = schedule, drive-in costs, onsite EV connector, offsite charger.
+  // Site (Portable Charging) = trailer generator + battery hardware.
   var CAR_FIELD_IDS = [
     'chargeCurveId', 'capacityKwh', 'sessionEnergyKwh',
     'coolingPerGapKwh', 'preSessionCoolingKwh', 'sessionEndReserveKwh',
   ];
   // Track scalar fields (session list is stored separately as values.sessions).
+  // Order mirrors UI panels: main → onsite → offsite (portable is site profile).
   var TRACK_FIELD_IDS = [
     'arrivalTime', 'sessionDurationMin', 'arrivalCostNoTrailerKwh', 'towingCostKwh',
+    'gridEnabled', 'gridPowerKw',
     'scName', 'scPowerCapKw', 'driveTimeMin', 'driveConsumptionKwh',
   ];
   var SITE_FIELD_IDS = [
     'genEnabled', 'genPowerKw', 'genFuelType', 'fuelBurnGalPerHr',
     'batteryEnabled', 'trailerCapKwh', 'minTrailerSocPct', 'dcPowerKw', 'dcdcEffPct', 'acdcEffPct',
-    'gridEnabled', 'gridPowerKw',
   ];
   var PROFILE_KINDS = ['car', 'track', 'site'];
   // How to charge in the gap after a run session (until the next).
@@ -1171,32 +1221,34 @@ var UI = (function () {
     { g:'Track', id:'arrivalCostNoTrailerKwh', label:'Arrival cost (no trailer)', unit:'kWh', step:0.5, default:13, min:0, set:num('arrivalCostNoTrailerKwh') },
     { g:'Track', id:'towingCostKwh', label:'Towing cost', unit:'kWh', step:0.5, default:4, min:0, set:num('towingCostKwh') },
 
-    { g:'Track', sub:'Offsite', id:'scName', label:'Charger name', kind:'text', default:'Supercharger',
+    // Charging panels (display order under Track): Onsite → Portable → Offsite
+    // Onsite charging (track profile): EV connector power at the facility
+    { g:'Track', sub:'Onsite', id:'gridEnabled', label:'Onsite Charging', kind:'check', default:false, subEnable:true,
+      set:function(o,v){ o.gridEnabled = (v === true || v === 'true'); } },
+    { g:'Track', sub:'Onsite', id:'gridPowerKw', label:'Power', unit:'kW', step:0.5, default:11.5, min:0, set:num('gridPowerKw') },
+
+    { g:'Portable Charging', sub:'Generator', id:'genEnabled', label:'Generator', kind:'check', default:true, subEnable:true,
+      set:function(o,v){ o.genEnabled = (v === true || v === 'true'); } },
+    { g:'Portable Charging', sub:'Generator', id:'genPowerKw', label:'Power', unit:'kW', step:0.5, default:13, min:0, set:num('genPowerKw') },
+    { g:'Portable Charging', sub:'Generator', id:'genFuelType', label:'Fuel', kind:'select', default:'gasoline',
+      options:[{ value:'gasoline', label:'Gasoline' }, { value:'propane', label:'Propane' }],
+      set:function(o,v){ o.genFuelType = (v === 'propane') ? 'propane' : 'gasoline'; } },
+    { g:'Portable Charging', sub:'Generator', id:'fuelBurnGalPerHr', label:'Fuel burn', unit:'gal/hr', step:0.1, default:1.3, set:num('fuelBurnGalPerHr') },
+
+    { g:'Portable Charging', sub:'Battery', id:'batteryEnabled', label:'Battery', kind:'check', default:true, subEnable:true,
+      set:function(o,v){ o.batteryEnabled = (v === true || v === 'true'); } },
+    { g:'Portable Charging', sub:'Battery', id:'trailerCapKwh', label:'Capacity', unit:'kWh', step:1, default:40, set:num('trailerCapKwh') },
+    { g:'Portable Charging', sub:'Battery', id:'minTrailerSocPct', label:'Min SoC', unit:'%', step:1, default:5, min:0, max:100, set:num('minTrailerSocPct') },
+    { g:'Portable Charging', sub:'Battery', id:'dcPowerKw', label:'DC charge', unit:'kW', step:1, default:40, set:num('dcPowerKw') },
+    { g:'Portable Charging', sub:'Battery', id:'dcdcEffPct', label:'DC-DC eff', unit:'%', step:1, default:95, min:1, max:100, set:function(o,v){ o.dcdcEff = parseFloat(v)/100; } },
+    // Only meaningful when generator feeds the battery DC bus (both enabled)
+    { g:'Portable Charging', sub:'Battery', id:'acdcEffPct', label:'AC-DC eff', unit:'%', step:1, default:94, min:1, max:100, set:function(o,v){ o.acdcEff = parseFloat(v)/100; } },
+
+    { g:'Track', sub:'Offsite', id:'scName', label:'Charger name', kind:'text', default:'Tumwater',
       set:function(o,v){ o.scName = String(v == null ? '' : v); } },
     { g:'Track', sub:'Offsite', id:'scPowerCapKw', label:'Offsite charger power', unit:'kW', step:5, default:250, min:1, set:num('scPowerCapKw') },
     { g:'Track', sub:'Offsite', id:'driveTimeMin', label:'One-way drive time', unit:'min', step:1, default:30, min:1, set:num('driveTimeMin') },
-    { g:'Track', sub:'Offsite', id:'driveConsumptionKwh', label:'One-way cost', unit:'kWh', step:0.5, default:14, min:0, set:num('driveConsumptionKwh') },
-
-    { g:'Site Charging', sub:'Generator', id:'genEnabled', label:'Generator', kind:'check', default:true, subEnable:true,
-      set:function(o,v){ o.genEnabled = (v === true || v === 'true'); } },
-    { g:'Site Charging', sub:'Generator', id:'genPowerKw', label:'Power', unit:'kW', step:0.5, default:13, min:0, set:num('genPowerKw') },
-    { g:'Site Charging', sub:'Generator', id:'genFuelType', label:'Fuel', kind:'select', default:'gasoline',
-      options:[{ value:'gasoline', label:'Gasoline' }, { value:'propane', label:'Propane' }],
-      set:function(o,v){ o.genFuelType = (v === 'propane') ? 'propane' : 'gasoline'; } },
-    { g:'Site Charging', sub:'Generator', id:'fuelBurnGalPerHr', label:'Fuel burn', unit:'gal/hr', step:0.1, default:1.3, set:num('fuelBurnGalPerHr') },
-
-    { g:'Site Charging', sub:'Battery', id:'batteryEnabled', label:'Battery', kind:'check', default:true, subEnable:true,
-      set:function(o,v){ o.batteryEnabled = (v === true || v === 'true'); } },
-    { g:'Site Charging', sub:'Battery', id:'trailerCapKwh', label:'Capacity', unit:'kWh', step:1, default:50, set:num('trailerCapKwh') },
-    { g:'Site Charging', sub:'Battery', id:'minTrailerSocPct', label:'Min SoC', unit:'%', step:1, default:5, min:0, max:100, set:num('minTrailerSocPct') },
-    { g:'Site Charging', sub:'Battery', id:'dcPowerKw', label:'DC charge', unit:'kW', step:1, default:40, set:num('dcPowerKw') },
-    { g:'Site Charging', sub:'Battery', id:'dcdcEffPct', label:'DC-DC eff', unit:'%', step:1, default:95, min:1, max:100, set:function(o,v){ o.dcdcEff = parseFloat(v)/100; } },
-    // Only meaningful when generator feeds the battery DC bus (both enabled)
-    { g:'Site Charging', sub:'Battery', id:'acdcEffPct', label:'AC-DC eff', unit:'%', step:1, default:94, min:1, max:100, set:function(o,v){ o.acdcEff = parseFloat(v)/100; } },
-
-    { g:'Site Charging', sub:'Grid', id:'gridEnabled', label:'Onsite EV connector', kind:'check', default:false, subEnable:true,
-      set:function(o,v){ o.gridEnabled = (v === true || v === 'true'); } },
-    { g:'Site Charging', sub:'Grid', id:'gridPowerKw', label:'Power', unit:'kW', step:0.5, default:11.5, min:0, set:num('gridPowerKw') },
+    { g:'Track', sub:'Offsite', id:'driveConsumptionKwh', label:'One-way cost', unit:'kWh', step:0.5, default:13, min:0, set:num('driveConsumptionKwh') },
   ];
 
   function defaultSessionsForm() {
@@ -1295,15 +1347,15 @@ var UI = (function () {
     out.sessions = sessionsToEngine(values.sessions);
     out.siteChargingEnabled = values.siteChargingEnabled !== false && values.siteChargingEnabled !== 'false';
     out.offsiteChargingEnabled = values.offsiteChargingEnabled !== false && values.offsiteChargingEnabled !== 'false';
-    // Grid EV connector is exclusive of portable gen/battery
+    // Onsite EV connector is exclusive of portable gen/battery when both would be on
     if (out.gridEnabled) {
       out.genEnabled = false;
       out.batteryEnabled = false;
     }
+    // Portable panel off only disables gen/battery — onsite is independent (track-owned)
     if (!out.siteChargingEnabled) {
       out.genEnabled = false;
       out.batteryEnabled = false;
-      out.gridEnabled = false;
     }
     return out;
   }
@@ -1333,7 +1385,7 @@ var UI = (function () {
       { label: 'From generator', value: fmt(m.fromGeneratorKwh, 0) + ' kWh' },
     ];
     if (m.fromGridKwh > 0.05) {
-      rows.push({ label: 'From grid (EV connector)', value: fmt(m.fromGridKwh, 0) + ' kWh' });
+      rows.push({ label: 'From onsite charging', value: fmt(m.fromGridKwh, 0) + ' kWh' });
     }
     if (m.skippedSessions && m.skippedSessions.length) {
       rows.push({ label: 'Missed', value: m.skippedSessions.map(function (s) {
@@ -1358,17 +1410,22 @@ var UI = (function () {
   }
 
   // ---- Profile helpers (pure; used by UI and tests) ----
+  // Default profiles match track-charging-profiles-2026-07-21.json (stable builtin ids).
   var BUILTIN_CAR_ID = 'car-plaid';
   var BUILTIN_CAR_M3P_ID = 'car-m3p';
   var BUILTIN_TRACK_ID = 'track-ridge';
+  var BUILTIN_TRACK_QLISPE_ID = 'track-qlispe';
+  var BUILTIN_TRACK_WALL_ID = 'track-wall-example';
   var BUILTIN_SITE_ID = 'site-trailer';
+  var BUILTIN_SITE_GEN_WALL_ID = 'site-gen-wall';
+  var BUILTIN_SITE_CONNECTOR_ID = 'site-connector-96';
   var PROFILE_META = {
     car:  { listKey: 'cars',  activeKey: 'activeCarId',  fieldIds: CAR_FIELD_IDS,
-            builtinId: BUILTIN_CAR_ID,   builtinName: 'Tesla Model S Plaid', label: 'EV' },
+            builtinId: BUILTIN_CAR_ID,   builtinName: 'My Plaid', label: 'EV' },
     track:{ listKey: 'tracks',activeKey: 'activeTrackId',fieldIds: TRACK_FIELD_IDS,
             builtinId: BUILTIN_TRACK_ID, builtinName: 'Ridge Motorsports Park', label: 'Track' },
     site: { listKey: 'sites', activeKey: 'activeSiteId', fieldIds: SITE_FIELD_IDS,
-            builtinId: BUILTIN_SITE_ID,  builtinName: 'Portable trailer + generator', label: 'Site Charging' },
+            builtinId: BUILTIN_SITE_ID,  builtinName: 'Trailer battery + generator', label: 'Portable Charging' },
   };
 
   function fieldDefaults(ids) {
@@ -1392,13 +1449,15 @@ var UI = (function () {
     out.offsiteChargingEnabled = true;
     return out;
   }
+  function cloneJson(o) { return JSON.parse(JSON.stringify(o)); }
   function builtinCarProfiles() {
     return [
       {
-        id: BUILTIN_CAR_ID, name: 'Tesla Model S Plaid', builtin: true,
+        id: BUILTIN_CAR_ID, name: 'My Plaid', builtin: true,
         values: carFieldDefaults({
           chargeCurveId: 'model-s-plaid', capacityKwh: '99.4',
-          sessionEnergyKwh: '35', sessionEndReserveKwh: '20',
+          sessionEnergyKwh: '35', coolingPerGapKwh: '6',
+          preSessionCoolingKwh: '5', sessionEndReserveKwh: '20',
         }),
       },
       {
@@ -1406,6 +1465,105 @@ var UI = (function () {
         values: carFieldDefaults({
           chargeCurveId: 'model-3-performance', capacityKwh: '75',
           sessionEnergyKwh: '28', sessionEndReserveKwh: '15',
+        }),
+      },
+    ];
+  }
+  function builtinSiteProfiles() {
+    return [
+      {
+        id: BUILTIN_SITE_ID, name: 'Trailer battery + generator', builtin: true,
+        values: Object.assign(fieldDefaults(SITE_FIELD_IDS), {
+          genEnabled: true, genPowerKw: '13', genFuelType: 'gasoline', fuelBurnGalPerHr: '1.3',
+          batteryEnabled: true, trailerCapKwh: '40', minTrailerSocPct: '5',
+          dcPowerKw: '40', dcdcEffPct: '95', acdcEffPct: '94',
+        }),
+      },
+      {
+        id: BUILTIN_SITE_GEN_WALL_ID, name: 'Generator + wall connector', builtin: true,
+        values: Object.assign(fieldDefaults(SITE_FIELD_IDS), {
+          genEnabled: true, genPowerKw: '11.5', genFuelType: 'gasoline', fuelBurnGalPerHr: '1.3',
+          batteryEnabled: false, trailerCapKwh: '50', minTrailerSocPct: '5',
+          dcPowerKw: '40', dcdcEffPct: '95', acdcEffPct: '94',
+        }),
+      },
+      {
+        id: BUILTIN_SITE_CONNECTOR_ID, name: '9.6kW connector', builtin: true,
+        values: Object.assign(fieldDefaults(SITE_FIELD_IDS), {
+          genEnabled: false, genPowerKw: '13', genFuelType: 'gasoline', fuelBurnGalPerHr: '1.3',
+          batteryEnabled: false, trailerCapKwh: '40', minTrailerSocPct: '5',
+          dcPowerKw: '40', dcdcEffPct: '95', acdcEffPct: '94',
+        }),
+      },
+    ];
+  }
+  function builtinTrackProfiles() {
+    function sess(list) { return normalizeSessionsForm(list); }
+    return [
+      {
+        id: BUILTIN_TRACK_ID, name: 'Ridge Motorsports Park', builtin: true,
+        values: Object.assign(trackFieldDefaults(), {
+          arrivalCostNoTrailerKwh: '13', towingCostKwh: '4',
+          scName: 'Tumwater', scPowerCapKw: '250',
+          driveTimeMin: '30', driveConsumptionKwh: '13',
+          siteProfileId: BUILTIN_SITE_ID,
+          siteChargingEnabled: true, offsiteChargingEnabled: true,
+          sessions: sess([
+            { start: '09:00', enabled: true, after: 'onsite' },
+            { start: '10:00', enabled: true, after: 'onsite' },
+            { start: '11:00', enabled: true, after: 'offsite', offsiteStop: 'until',
+              offsiteUntilSocPct: 100, offsiteForMin: 30 },
+            { start: '13:00', enabled: false },
+            { start: '14:00', enabled: true, after: 'onsite' },
+            { start: '15:00', enabled: true, after: 'onsite' },
+            { start: '16:00', enabled: true },
+          ]),
+        }),
+      },
+      {
+        id: BUILTIN_TRACK_QLISPE_ID, name: 'Qlispe Raceway Park', builtin: true,
+        values: Object.assign(trackFieldDefaults(), {
+          arrivalCostNoTrailerKwh: '2', towingCostKwh: '4',
+          scName: 'Supercharger', scPowerCapKw: '250',
+          driveTimeMin: '10', driveConsumptionKwh: '2',
+          siteProfileId: BUILTIN_SITE_ID,
+          siteChargingEnabled: false, offsiteChargingEnabled: true,
+          sessions: sess([
+            { start: '09:00', enabled: true, after: 'offsite', offsiteStop: 'next',
+              offsiteUntilSocPct: 80, offsiteForMin: 30 },
+            { start: '10:00', enabled: true, after: 'offsite', offsiteStop: 'next',
+              offsiteUntilSocPct: 80, offsiteForMin: 30 },
+            { start: '11:00', enabled: true, after: 'offsite', offsiteStop: 'next',
+              offsiteUntilSocPct: 80, offsiteForMin: 30 },
+            { start: '13:00', enabled: true, after: 'offsite', offsiteStop: 'next',
+              offsiteUntilSocPct: 80, offsiteForMin: 30 },
+            { start: '14:00', enabled: true, after: 'offsite', offsiteStop: 'next',
+              offsiteUntilSocPct: 80, offsiteForMin: 30 },
+            { start: '15:00', enabled: true, after: 'offsite', offsiteStop: 'next',
+              offsiteUntilSocPct: 80, offsiteForMin: 30 },
+            { start: '16:00', enabled: true },
+          ]),
+        }),
+      },
+      {
+        id: BUILTIN_TRACK_WALL_ID, name: 'Example track with wall connector', builtin: true,
+        values: Object.assign(trackFieldDefaults(), {
+          arrivalCostNoTrailerKwh: '13', towingCostKwh: '4',
+          scName: 'Supercharger', scPowerCapKw: '250',
+          driveTimeMin: '10', driveConsumptionKwh: '2',
+          siteProfileId: BUILTIN_SITE_ID,
+          siteChargingEnabled: true, offsiteChargingEnabled: true,
+          sessions: sess([
+            { start: '09:00', enabled: true, after: 'none' },
+            { start: '10:00', enabled: true, after: 'offsite', offsiteStop: 'next',
+              offsiteUntilSocPct: 80, offsiteForMin: 30 },
+            { start: '11:00', enabled: true, after: 'offsite', offsiteStop: 'next',
+              offsiteUntilSocPct: 80, offsiteForMin: 30 },
+            { start: '13:00', enabled: true, after: 'none' },
+            { start: '14:00', enabled: false },
+            { start: '15:00', enabled: false },
+            { start: '16:00', enabled: true },
+          ]),
         }),
       },
     ];
@@ -1462,22 +1620,31 @@ var UI = (function () {
   function newId(prefix) {
     return prefix + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
+  function isBuiltinProfileId(kind, id) {
+    if (kind === 'car') return id === BUILTIN_CAR_ID || id === BUILTIN_CAR_M3P_ID;
+    if (kind === 'track') {
+      return id === BUILTIN_TRACK_ID || id === BUILTIN_TRACK_QLISPE_ID || id === BUILTIN_TRACK_WALL_ID;
+    }
+    if (kind === 'site') {
+      return id === BUILTIN_SITE_ID || id === BUILTIN_SITE_GEN_WALL_ID || id === BUILTIN_SITE_CONNECTOR_ID;
+    }
+    return false;
+  }
+  function builtinListForKind(kind) {
+    if (kind === 'car') return cloneJson(builtinCarProfiles());
+    if (kind === 'track') return cloneJson(builtinTrackProfiles());
+    if (kind === 'site') return cloneJson(builtinSiteProfiles());
+    return [];
+  }
   function builtinProfiles() {
-    var out = {
-      cars: builtinCarProfiles(),
+    return {
+      cars: cloneJson(builtinCarProfiles()),
       activeCarId: BUILTIN_CAR_ID,
+      tracks: cloneJson(builtinTrackProfiles()),
+      activeTrackId: BUILTIN_TRACK_ID,
+      sites: cloneJson(builtinSiteProfiles()),
+      activeSiteId: BUILTIN_SITE_ID,
     };
-    PROFILE_KINDS.forEach(function (kind) {
-      if (kind === 'car') return;
-      var m = PROFILE_META[kind];
-      var values = kind === 'track' ? trackFieldDefaults() : fieldDefaults(m.fieldIds);
-      out[m.listKey] = [{
-        id: m.builtinId, name: m.builtinName, builtin: true,
-        values: values,
-      }];
-      out[m.activeKey] = m.builtinId;
-    });
-    return out;
   }
   function normalizeProfiles(raw) {
     if (!raw || typeof raw !== 'object') return builtinProfiles();
@@ -1501,8 +1668,7 @@ var UI = (function () {
         } else {
           values = Object.assign(fieldDefaults(fieldIds), pickFields(p.values, fieldIds));
         }
-        var isBuiltin = !!p.builtin || p.id === builtinId ||
-          (kind === 'car' && p.id === BUILTIN_CAR_M3P_ID);
+        var isBuiltin = !!p.builtin || isBuiltinProfileId(kind, String(p.id));
         return {
           id: String(p.id),
           name: String(p.name),
@@ -1513,14 +1679,7 @@ var UI = (function () {
       // Only seed defaults when the list is empty (first run / migration).
       // Do not re-insert builtins the user deliberately deleted.
       if (!arr.length) {
-        if (kind === 'car') {
-          arr = JSON.parse(JSON.stringify(builtinCarProfiles()));
-        } else {
-          arr = [{
-            id: builtinId, name: builtinName, builtin: true,
-            values: kind === 'track' ? trackFieldDefaults() : fieldDefaults(fieldIds),
-          }];
-        }
+        arr = builtinListForKind(kind);
       }
       return arr;
     }
@@ -1531,6 +1690,35 @@ var UI = (function () {
       out[m.listKey] = list;
       var active = raw[m.activeKey];
       out[m.activeKey] = list.some(function (p) { return p.id === active; }) ? active : list[0].id;
+    });
+    // Migrate onsite EV connector (grid) from site → track when the track never stored it.
+    // Older builds kept gridEnabled/gridPowerKw on the portable site profile.
+    var rawTracks = Array.isArray(raw.tracks) ? raw.tracks : [];
+    var rawSites = Array.isArray(raw.sites) ? raw.sites : [];
+    var rawSiteById = {};
+    rawSites.forEach(function (s) {
+      if (s && s.id) rawSiteById[String(s.id)] = s;
+    });
+    out.tracks = out.tracks.map(function (tr) {
+      var rawTr = null;
+      for (var i = 0; i < rawTracks.length; i++) {
+        if (rawTracks[i] && String(rawTracks[i].id) === String(tr.id)) { rawTr = rawTracks[i]; break; }
+      }
+      var rawVals = (rawTr && rawTr.values) || {};
+      if (rawVals.gridEnabled != null || rawVals.gridPowerKw != null) return tr;
+      var siteId = tr.values && tr.values.siteProfileId;
+      var rawSite = siteId ? rawSiteById[String(siteId)] : null;
+      if (!rawSite || !rawSite.values) return tr;
+      var sv = rawSite.values;
+      if (sv.gridEnabled == null && sv.gridPowerKw == null) return tr;
+      var values = Object.assign({}, tr.values);
+      if (sv.gridEnabled != null) {
+        values.gridEnabled = (sv.gridEnabled === true || sv.gridEnabled === 'true');
+      }
+      if (sv.gridPowerKw != null && sv.gridPowerKw !== '') {
+        values.gridPowerKw = String(sv.gridPowerKw);
+      }
+      return { id: tr.id, name: tr.name, builtin: tr.builtin, values: values };
     });
     return out;
   }
@@ -1712,17 +1900,22 @@ var UI = (function () {
            SITE_FIELD_IDS: SITE_FIELD_IDS, PROFILE_KINDS: PROFILE_KINDS, PROFILE_META: PROFILE_META,
            GAP_ACTION_OPTIONS: GAP_ACTION_OPTIONS,
            BUILTIN_CAR_ID: BUILTIN_CAR_ID, BUILTIN_CAR_M3P_ID: BUILTIN_CAR_M3P_ID,
-           BUILTIN_TRACK_ID: BUILTIN_TRACK_ID, BUILTIN_SITE_ID: BUILTIN_SITE_ID,
+           BUILTIN_TRACK_ID: BUILTIN_TRACK_ID, BUILTIN_TRACK_QLISPE_ID: BUILTIN_TRACK_QLISPE_ID,
+           BUILTIN_TRACK_WALL_ID: BUILTIN_TRACK_WALL_ID, BUILTIN_SITE_ID: BUILTIN_SITE_ID,
+           BUILTIN_SITE_GEN_WALL_ID: BUILTIN_SITE_GEN_WALL_ID,
+           BUILTIN_SITE_CONNECTOR_ID: BUILTIN_SITE_CONNECTOR_ID,
            VEHICLE_OPTIONS: VEHICLE_OPTIONS,
            EXPORT_FORMAT: EXPORT_FORMAT, EXPORT_VERSION: EXPORT_VERSION,
            readParams: readParams, formatMetrics: formatMetrics,
-           hhmmToMin: hhmmToMin, minToHHMM: minToHHMM, chartScale: chartScale,
+           hhmmToMin: hhmmToMin, minToHHMM: minToHHMM, minToAmPm: minToAmPm, chartScale: chartScale,
            fieldDefaults: fieldDefaults, trackFieldDefaults: trackFieldDefaults,
            pickFields: pickFields, pickTrackValues: pickTrackValues,
            valuesEqual: valuesEqual, sessionsEqual: sessionsEqual, trackValuesEqual: trackValuesEqual,
            defaultSessionsForm: defaultSessionsForm, normalizeSessionsForm: normalizeSessionsForm,
            sessionsToEngine: sessionsToEngine,
-           newId: newId, builtinProfiles: builtinProfiles, normalizeProfiles: normalizeProfiles,
+           newId: newId, builtinProfiles: builtinProfiles, builtinCarProfiles: builtinCarProfiles,
+           builtinTrackProfiles: builtinTrackProfiles, builtinSiteProfiles: builtinSiteProfiles,
+           normalizeProfiles: normalizeProfiles,
            findProfile: findProfile, upsertProfile: upsertProfile, removeProfile: removeProfile,
            fieldIdsForKind: fieldIdsForKind,
            packExport: packExport, parseImport: parseImport, findByName: findByName,
@@ -1762,15 +1955,19 @@ var UI = (function () {
   }
   function applyProfileValues(kind, values) {
     applyFieldValues(values, fieldIdsFor(kind));
-    if (kind === 'track') setSessionsForm(values.sessions || UI.defaultSessionsForm());
+    // Track sessions: only via applyTrackProfile (after site enable/sources are set).
     if (kind === 'car') syncVehicleSelectWidth();
     if (kind === 'site') normalizeSiteSourceCheckboxes();
   }
   /** Apply track values and the site charging profile linked to that track. */
   function applyTrackProfile(trackProf) {
     if (!trackProf) return;
-    applyProfileValues('track', trackProf.values || {});
     var vals = trackProf.values || {};
+    // 1. Track scalar fields only — do not build session rows yet.
+    //    setSessionsForm uses siteChargingAvailableFromDom(); if site charging is still
+    //    off from the previous track, "onsite" gaps are demoted to "none" and stick.
+    applyFieldValues(vals, fieldIdsFor('track'));
+    // 2. Restore site/offsite enables and linked site profile first.
     var se = document.getElementById('siteChargingEnabled');
     var oe = document.getElementById('offsiteChargingEnabled');
     if (se) se.checked = vals.siteChargingEnabled !== false && vals.siteChargingEnabled !== 'false';
@@ -1779,20 +1976,38 @@ var UI = (function () {
     var siteId = vals.siteProfileId;
     var siteList = listFor('site');
     var site = (siteId && UI.findProfile(siteList, siteId)) || siteList[0];
-    if (!site) return;
-    setActiveId('site', site.id);
-    applyProfileValues('site', site.values || {});
-    var siteSel = document.getElementById('siteSelect');
-    if (siteSel) siteSel.value = site.id;
+    if (site) {
+      setActiveId('site', site.id);
+      applyProfileValues('site', site.values || {});
+      var siteSel = document.getElementById('siteSelect');
+      if (siteSel) siteSel.value = site.id;
+    }
+    // 3. Now session rows (gap options reflect this track's site/offsite availability).
+    setSessionsForm(vals.sessions || UI.defaultSessionsForm());
     refreshProfileUI();
   }
   function syncTrackPanelEnables() {
     var se = document.getElementById('siteChargingEnabled');
     var oe = document.getElementById('offsiteChargingEnabled');
-    var sitePanel = document.querySelector('.track-panel.track-site');
+    var ge = document.getElementById('gridEnabled');
+    var portPanel = document.querySelector('.track-panel.track-portable');
     var offPanel = document.querySelector('.track-panel.track-offsite');
-    if (sitePanel && se) sitePanel.classList.toggle('is-off', !se.checked);
+    var onPanel = document.querySelector('.track-panel.track-onsite');
+    if (portPanel && se) portPanel.classList.toggle('is-off', !se.checked);
     if (offPanel && oe) offPanel.classList.toggle('is-off', !oe.checked);
+    if (onPanel && ge) onPanel.classList.toggle('is-off', !ge.checked);
+    // Grey/disabled styling is CSS (.is-off). Also block focus on body controls when off.
+    document.querySelectorAll('.track-panel').forEach(function (panel) {
+      var off = panel.classList.contains('is-off');
+      panel.querySelectorAll('.track-panel-body input, .track-panel-body select, .track-panel-body button').forEach(function (el) {
+        if (off) {
+          el.disabled = true;
+        } else if (el.dataset.forceDisabled !== '1') {
+          // Re-enable unless a more specific sync marked the control (see syncSiteSourceUI)
+          el.disabled = false;
+        }
+      });
+    });
   }
   /** Persist which site profile is linked to the active track. */
   function setActiveTrackSiteProfileId(siteId) {
@@ -1807,36 +2022,47 @@ var UI = (function () {
     setList('track', UI.upsertProfile(trackList, track));
   }
 
-  /** Grid EV connector XOR portable gen/battery; dim disabled sub-section fields. */
+  /** Onsite XOR portable gen/battery; grey out disabled portable sub-sections. */
   function syncSiteSourceUI() {
+    function setControlDisabled(el, off) {
+      if (!el) return;
+      el.disabled = !!off;
+      if (off) el.dataset.forceDisabled = '1';
+      else delete el.dataset.forceDisabled;
+    }
     function setSubOn(name, on) {
       var sub = document.querySelector('.subgrp[data-sub="' + name + '"]');
       if (!sub) return;
-      if (on) sub.classList.remove('is-off');
-      else sub.classList.add('is-off');
+      sub.classList.toggle('is-off', !on);
       sub.querySelectorAll('.grp-fields input, .grp-fields select').forEach(function (el) {
-        el.disabled = !on;
+        setControlDisabled(el, !on);
       });
     }
     var gen = document.getElementById('genEnabled');
     var bat = document.getElementById('batteryEnabled');
     var grid = document.getElementById('gridEnabled');
-    if (!gen || !bat || !grid) return;
-    setSubOn('Generator', gen.checked);
-    setSubOn('Battery', bat.checked);
-    setSubOn('Grid', grid.checked);
+    var portPanel = document.getElementById('siteChargingEnabled');
+    if (!gen || !bat) return;
+    // Portable panel master off, or onsite exclusive → grey gen/battery field bodies
+    var portablePanelOn = !portPanel || portPanel.checked;
+    var portableAllowed = portablePanelOn && (!grid || !grid.checked);
+    setSubOn('Generator', portableAllowed && gen.checked);
+    setSubOn('Battery', portableAllowed && bat.checked);
+    // Enable checkboxes stay clickable while portable panel is on (can reclaim from onsite)
+    setControlDisabled(gen, !portablePanelOn);
+    setControlDisabled(bat, !portablePanelOn);
     // AC-DC is the gen→battery bus rectifier: only editable when both are on
     var acdc = document.getElementById('acdcEffPct');
     if (acdc) {
-      var both = gen.checked && bat.checked;
-      acdc.disabled = !both;
+      var both = portableAllowed && gen.checked && bat.checked;
+      setControlDisabled(acdc, !both);
       var fld = acdc.closest('.fld');
       if (fld) fld.classList.toggle('is-disabled', !both);
     }
     // Towing only when bringing portable gen and/or battery; show 0 while disabled
     var tow = document.getElementById('towingCostKwh');
     if (tow) {
-      var portable = gen.checked || bat.checked;
+      var portable = portableAllowed && (gen.checked || bat.checked);
       if (!portable) {
         if (tow.dataset.savedTow == null) tow.dataset.savedTow = tow.value;
         tow.value = '0';
@@ -1844,7 +2070,7 @@ var UI = (function () {
         tow.value = tow.dataset.savedTow;
         delete tow.dataset.savedTow;
       }
-      tow.disabled = !portable;
+      setControlDisabled(tow, !portable);
       var towFld = tow.closest('.fld');
       if (towFld) towFld.classList.toggle('is-disabled', !portable);
     }
@@ -2117,14 +2343,14 @@ var UI = (function () {
 
   // ---- Session list editor (part of Track) ----
   // Sessions are primary rows. After each enabled non-last session: a gap mode dropdown
-  // (Charge onsite | Charge offsite | No charging). Onsite only when site charging is on.
+  // (Charge onsite | Charge offsite | No charging). Onsite when track onsite and/or portable is on.
   function siteChargingAvailableFromDom() {
+    var grid = document.getElementById('gridEnabled');
+    if (grid && grid.checked) return true;
     var panel = document.getElementById('siteChargingEnabled');
     if (panel && !panel.checked) return false;
     var gen = document.getElementById('genEnabled');
     var bat = document.getElementById('batteryEnabled');
-    var grid = document.getElementById('gridEnabled');
-    if (grid && grid.checked) return true;
     if (gen && gen.checked) return true;
     if (bat && bat.checked) return true;
     return false;
@@ -2270,22 +2496,35 @@ var UI = (function () {
     if (pct == null || !p || !(p.capacityKwh > 0) || !(p.sessionEndReserveKwh > 0)) return false;
     return (pct / 100 * p.capacityKwh) < p.sessionEndReserveKwh - 1e-9;
   }
+  function socNegative(pct) {
+    return pct != null && isFinite(pct) && pct < 0;
+  }
   function trlBelowFloor(pct, p) {
     if (pct == null || !p || p.minTrailerSocPct == null) return false;
     return pct < p.minTrailerSocPct - 1e-9;
   }
   /** SoC range "start% → end%"; kind 'car' | 'trailer' for low threshold.
    *  Colors: green if charging (end > start), yellow if discharging, muted if flat.
+   *  opts.checkReserve (default true for car): below session-end reserve → red.
+   *    Pass false for drive/charge/wait — reserve only matters at track session end.
+   *  Negative SoC is always critical (sess-neg), any row.
    *  Always paints into an inner .soc-range span so <td> stays display:table-cell. */
-  function setSocCell(el, timeline, startMin, endMin, p, baseCls, kind) {
+  function setSocCell(el, timeline, startMin, endMin, p, baseCls, kind, opts) {
     if (!el) return;
     kind = kind || 'car';
+    opts = opts || {};
     var key = kind === 'trailer' ? 'trlPct' : 'carPct';
     var a = pctAt(timeline, startMin, key);
     var b = pctAt(timeline, endMin, key);
-    var low = kind === 'trailer'
-      ? (trlBelowFloor(a, p) || trlBelowFloor(b, p))
-      : (socBelowReserve(a, p) || socBelowReserve(b, p));
+    var neg = socNegative(a) || socNegative(b);
+    var low = false;
+    if (!neg) {
+      if (kind === 'trailer') {
+        low = trlBelowFloor(a, p) || trlBelowFloor(b, p);
+      } else if (opts.checkReserve !== false) {
+        low = socBelowReserve(a, p) || socBelowReserve(b, p);
+      }
+    }
     var trend = 'soc-flat';
     if (a != null && b != null) {
       if (b > a) trend = 'soc-charge';
@@ -2302,7 +2541,8 @@ var UI = (function () {
         el.appendChild(range);
       }
     }
-    range.className = 'soc-range ' + trend + (low ? ' sess-bad' : '');
+    var warn = neg ? ' sess-neg' : (low ? ' sess-bad' : '');
+    range.className = 'soc-range ' + trend + warn;
     range.innerHTML =
       '<span class="soc-a">' + fmtSocPct(a) + '</span>' +
       '<span class="soc-arrow">→</span>' +
@@ -2471,47 +2711,50 @@ var UI = (function () {
       if (isOffsite && enabled && trip && trip.departMin != null) {
         var driveOutEnd = trip.scStartMin != null ? trip.scStartMin : (trip.departMin + (p.driveTimeMin || 0));
         showRow(driveOut, true);
-        setCell(driveOut.querySelector('.do-start'), UI.minToHHMM(trip.departMin));
+        setCell(driveOut.querySelector('.do-start'), UI.minToAmPm(trip.departMin));
         setCell(driveOut.querySelector('.do-act'), 'Drive to ' + scName);
         setCell(driveOut.querySelector('.do-dur'), fmtMin(Math.max(0, driveOutEnd - trip.departMin)));
         var doA = trip.departMin > 0 ? trip.departMin - 1 : trip.departMin;
         var doB = driveOutEnd > 0 ? driveOutEnd - 1 : trip.departMin;
-        setSocCell(driveOut.querySelector('.do-soc'), tl, doA, doB, p, 'sess-num do-soc', 'car');
-        setSocCell(driveOut.querySelector('.do-trl'), tl, doA, doB, p, 'sess-num do-trl', 'trailer');
+        // Drive/charge/wait: reserve only applies at track session end — skip it here.
+        // Negative SoC still gets critical highlight via setSocCell.
+        var noRes = { checkReserve: false };
+        setSocCell(driveOut.querySelector('.do-soc'), tl, doA, doB, p, 'sess-num do-soc', 'car', noRes);
+        setSocCell(driveOut.querySelector('.do-trl'), tl, doA, doB, p, 'sess-num do-trl', 'trailer', noRes);
 
         showRow(chargeRow, true);
         chargeRow.classList.add('sess-sc');
         var scEnd = trip.scEndMin != null ? trip.scEndMin
           : (trip.returnMin != null ? trip.returnMin - (p.driveTimeMin || 0) : null);
         var chStart = trip.scStartMin != null ? trip.scStartMin : trip.departMin;
-        setCell(chargeRow.querySelector('.ch-start'), UI.minToHHMM(chStart));
+        setCell(chargeRow.querySelector('.ch-start'), UI.minToAmPm(chStart));
         setCell(chargeRow.querySelector('.ch-dur'),
           scEnd != null && trip.scStartMin != null ? fmtMin(Math.max(0, scEnd - trip.scStartMin)) : '…');
         if (trip.scStartMin != null && scEnd != null) {
           var chA = trip.scStartMin > 0 ? trip.scStartMin - 1 : trip.scStartMin;
           var chB = scEnd - 1;
-          setSocCell(chargeRow.querySelector('.ch-soc'), tl, chA, chB, p, 'sess-num ch-soc', 'car');
-          setSocCell(chargeRow.querySelector('.ch-trl'), tl, chA, chB, p, 'sess-num ch-trl', 'trailer');
+          setSocCell(chargeRow.querySelector('.ch-soc'), tl, chA, chB, p, 'sess-num ch-soc', 'car', noRes);
+          setSocCell(chargeRow.querySelector('.ch-trl'), tl, chA, chB, p, 'sess-num ch-trl', 'trailer', noRes);
         } else {
-          setSocCell(chargeRow.querySelector('.ch-soc'), tl, null, null, p, 'sess-num ch-soc', 'car');
-          setSocCell(chargeRow.querySelector('.ch-trl'), tl, null, null, p, 'sess-num ch-trl', 'trailer');
+          setSocCell(chargeRow.querySelector('.ch-soc'), tl, null, null, p, 'sess-num ch-soc', 'car', noRes);
+          setSocCell(chargeRow.querySelector('.ch-trl'), tl, null, null, p, 'sess-num ch-trl', 'trailer', noRes);
         }
 
         if (trip.scEndMin != null) {
           showRow(driveBack, true);
           var backDur = trip.returnMin != null
             ? Math.max(0, trip.returnMin - trip.scEndMin) : (p.driveTimeMin || 0);
-          setCell(driveBack.querySelector('.db-start'), UI.minToHHMM(trip.scEndMin));
+          setCell(driveBack.querySelector('.db-start'), UI.minToAmPm(trip.scEndMin));
           setCell(driveBack.querySelector('.db-dur'),
             trip.returnMin != null ? fmtMin(backDur) : fmtMin(p.driveTimeMin) + '…');
           if (trip.returnMin != null) {
             var dbA = trip.scEndMin > 0 ? trip.scEndMin - 1 : trip.scEndMin;
             var dbB = trip.returnMin - 1;
-            setSocCell(driveBack.querySelector('.db-soc'), tl, dbA, dbB, p, 'sess-num db-soc', 'car');
-            setSocCell(driveBack.querySelector('.db-trl'), tl, dbA, dbB, p, 'sess-num db-trl', 'trailer');
+            setSocCell(driveBack.querySelector('.db-soc'), tl, dbA, dbB, p, 'sess-num db-soc', 'car', noRes);
+            setSocCell(driveBack.querySelector('.db-trl'), tl, dbA, dbB, p, 'sess-num db-trl', 'trailer', noRes);
           } else {
-            setSocCell(driveBack.querySelector('.db-soc'), tl, null, null, p, 'sess-num db-soc', 'car');
-            setSocCell(driveBack.querySelector('.db-trl'), tl, null, null, p, 'sess-num db-trl', 'trailer');
+            setSocCell(driveBack.querySelector('.db-soc'), tl, null, null, p, 'sess-num db-soc', 'car', noRes);
+            setSocCell(driveBack.querySelector('.db-trl'), tl, null, null, p, 'sess-num db-trl', 'trailer', noRes);
           }
         } else {
           showRow(driveBack, false);
@@ -2520,14 +2763,14 @@ var UI = (function () {
         // Wait after return until the *next table row* (may be skipped)
         if (trip.returnMin != null && next && trip.returnMin < next.startMin) {
           showRow(waitRow, true);
-          setCell(waitRow.querySelector('.wt-start'), UI.minToHHMM(trip.returnMin));
+          setCell(waitRow.querySelector('.wt-start'), UI.minToAmPm(trip.returnMin));
           setCell(waitRow.querySelector('.wt-act'),
             allowOnsite ? 'Charge onsite' : 'Wait');
           setCell(waitRow.querySelector('.wt-dur'), fmtMin(next.startMin - trip.returnMin));
           var wtA = trip.returnMin > 0 ? trip.returnMin - 1 : trip.returnMin;
           var wtB = next.startMin > 0 ? next.startMin - 1 : next.startMin;
-          setSocCell(waitRow.querySelector('.wt-soc'), tl, wtA, wtB, p, 'sess-num wt-soc', 'car');
-          setSocCell(waitRow.querySelector('.wt-trl'), tl, wtA, wtB, p, 'sess-num wt-trl', 'trailer');
+          setSocCell(waitRow.querySelector('.wt-soc'), tl, wtA, wtB, p, 'sess-num wt-soc', 'car', noRes);
+          setSocCell(waitRow.querySelector('.wt-trl'), tl, wtA, wtB, p, 'sess-num wt-trl', 'trailer', noRes);
         } else {
           showRow(waitRow, false);
         }
@@ -2546,12 +2789,13 @@ var UI = (function () {
         var gapStart = s.endMin;
         var gapEnd = next ? next.startMin : s.endMin;
         var gapMin = Math.max(0, gapEnd - gapStart);
-        setCell(chargeRow.querySelector('.ch-start'), UI.minToHHMM(gapStart));
+        setCell(chargeRow.querySelector('.ch-start'), UI.minToAmPm(gapStart));
         setCell(chargeRow.querySelector('.ch-dur'), fmtMin(gapMin));
         var onA = gapStart > 0 ? gapStart - 1 : gapStart;
         var onB = gapEnd > 0 ? gapEnd - 1 : gapStart;
-        setSocCell(chargeRow.querySelector('.ch-soc'), tl, onA, onB, p, 'sess-num ch-soc', 'car');
-        setSocCell(chargeRow.querySelector('.ch-trl'), tl, onA, onB, p, 'sess-num ch-trl', 'trailer');
+        var noResOn = { checkReserve: false };
+        setSocCell(chargeRow.querySelector('.ch-soc'), tl, onA, onB, p, 'sess-num ch-soc', 'car', noResOn);
+        setSocCell(chargeRow.querySelector('.ch-trl'), tl, onA, onB, p, 'sess-num ch-trl', 'trailer', noResOn);
       }
     });
   }
@@ -2802,7 +3046,7 @@ var UI = (function () {
     var groups = {};
     UI.UI_FIELDS.forEach(function (f) { (groups[f.g] = groups[f.g] || []).push(f); });
 
-    // Site Charging is nested under Track (linked via track.values.siteProfileId)
+    // Portable Charging is nested under Track (linked via track.values.siteProfileId)
     var PROFILED = [
       { group: 'EV', kind: 'car' },
       { group: 'Track', kind: 'track' },
@@ -2863,7 +3107,7 @@ var UI = (function () {
         (subs[f.sub] = subs[f.sub] || []).push(f);
       });
       // Skip empty main row so the first sub-section sits flush under the header
-      // (avoids a stray separator above Generator on Site Charging).
+      // (avoids a stray separator above Generator on Portable Charging).
       var html = main.length ? fieldsHtml(main) : '';
       // EV: fields on the left, charge curve as a full-height right column
       if (g === 'EV') {
@@ -2894,24 +3138,44 @@ var UI = (function () {
       }
 
       if (g === 'Track') {
-        // Order: arrival/main → Site Charging (profiles) → Offsite → Track Sessions
-        var siteList = groups['Site Charging'] || [];
-        var siteSubs = {};
-        siteList.forEach(function (f) {
+        // Order: arrival/main → Onsite → Portable (profiles) → Offsite → Track Sessions
+        if (subs.Onsite) {
+          var onBody = [];
+          var onEnableDefault = false;
+          subs.Onsite.forEach(function (f) {
+            if (f.subEnable) onEnableDefault = !!f.default;
+            else onBody.push(f);
+          });
+          html += '<div class="track-panel track-onsite" data-section-embed="onsite">' +
+            '<label class="panel-enable" for="gridEnabled">' +
+              '<input type="checkbox" id="gridEnabled"' + (onEnableDefault ? ' checked' : '') +
+              '> Onsite Charging' +
+            '</label>' +
+            '<div class="track-panel-body">' + fieldsHtml(onBody) + '</div>' +
+          '</div>';
+        }
+        var portList = groups['Portable Charging'] || [];
+        var portSubs = {};
+        portList.forEach(function (f) {
           if (!f.sub) return;
-          (siteSubs[f.sub] = siteSubs[f.sub] || []).push(f);
+          (portSubs[f.sub] = portSubs[f.sub] || []).push(f);
         });
-        var siteBody = '';
-        Object.keys(siteSubs).forEach(function (name) {
-          siteBody += subSectionHtml(name, siteSubs[name]);
+        var portBody = '';
+        // Stable order: Generator then Battery
+        ['Generator', 'Battery'].forEach(function (name) {
+          if (portSubs[name]) portBody += subSectionHtml(name, portSubs[name]);
         });
-        html += '<div class="track-panel track-site" data-section-embed="site">' +
+        Object.keys(portSubs).forEach(function (name) {
+          if (name === 'Generator' || name === 'Battery') return;
+          portBody += subSectionHtml(name, portSubs[name]);
+        });
+        html += '<div class="track-panel track-portable" data-section-embed="site">' +
           '<label class="panel-enable" for="siteChargingEnabled">' +
-            '<input type="checkbox" id="siteChargingEnabled" checked> Site Charging' +
+            '<input type="checkbox" id="siteChargingEnabled" checked> Portable Charging' +
           '</label>' +
           '<div class="track-panel-body">' +
             sectionHeadHtml('site', 'Profile') +
-            siteBody +
+            portBody +
           '</div>' +
         '</div>';
         if (subs.Offsite) {
@@ -3069,7 +3333,12 @@ var UI = (function () {
       var ev = (f.kind === 'check' || f.kind === 'select') ? 'change' : 'input';
       el.addEventListener(ev, function () {
         if (f.id === 'genEnabled' || f.id === 'batteryEnabled' || f.id === 'gridEnabled') {
+          var turningOnOnsite = (f.id === 'gridEnabled' && el.checked);
           applySiteSourceExclusivity(f.id);
+          syncTrackPanelEnables();
+          // Gap dropdown options depend on onsite/portable availability
+          setSessionsForm(readSessionsFormRaw());
+          if (turningOnOnsite) autoConvertNoneGapsToOnsite();
         }
         render();
       });
@@ -3701,8 +3970,9 @@ var UI = (function () {
     syncCapacityLimit();
     syncVehicleSelectWidth();
     drawChargeCurveChart();
-    syncSiteSourceUI();
+    // Panel is-off first, then field-level greys (gen/battery/acdc/tow)
     syncTrackPanelEnables();
+    syncSiteSourceUI();
     syncSessionGapOptions();
     var values = currentValues();
     saveValues(values); // persist so a refresh restores the inputs
