@@ -98,8 +98,11 @@ test('skipped hour with after=none: IDLE at track, flat SoC (no cooling drain)',
   ], {
     offsiteChargingEnabled: false,
     siteChargingEnabled: true,
-    // Force known mid-pack start by zeroing arrival costs
-    arrivalCostNoTrailerKwh: 0, towingCostKwh: 0,
+    coolingPowerKw: 0, // isolate: no cool drain during none paddock
+    // Force known mid-pack start by zeroing drive-in + towing costs
+    offsiteSites: [{ id: 'pre', name: 'Home', powerKw: 250, driveTimeMin: 1, driveConsumptionKwh: 0 }],
+    preTrackSiteId: 'pre',
+    towingCostKwh: 0,
   });
   var m = modesIn(x.r, 9 * 60 + 20, 11 * 60);
   assert.ok((m.IDLE || 0) > 30, JSON.stringify(m));
@@ -125,7 +128,8 @@ test('no charging gap: car flat but gen still tops trailer', () => {
     minTrailerSocPct: 5,
     // Drain trailer during first onsite gap so none-gap has room to refill
     sessionEnergyKwh: 40,
-    arrivalCostNoTrailerKwh: 20,
+    offsiteSites: [{ id: 'pre', name: 'Home', powerKw: 250, driveTimeMin: 30, driveConsumptionKwh: 20 }],
+    preTrackSiteId: 'pre',
     towingCostKwh: 4,
   });
   // Sample mid none-hour (10:00–11:00 skipped)
@@ -341,15 +345,15 @@ test('multiple skips after offsite: residual until first enabled', () => {
 });
 
 test('skipped hour after=offsite launches a real second trip (drive+SC), not silent onsite', () => {
-  // Illogical plan: offsite after 11, skip 13 also set to offsite, then 14 enabled.
+  // Enough room after the first return for a second for-min offsite from the skip.
   var x = sim([
     { t: '09:00', after: 'onsite' },
     { t: '10:00', after: 'onsite' },
-    { t: '11:00', after: 'offsite', stop: 'until', until: 100 },
-    { t: '13:00', en: false, after: 'offsite', stop: 'next' },
-    { t: '14:00', after: 'onsite' },
-    { t: '15:00' },
-  ], { driveTimeMin: 30, driveConsumptionKwh: 13 });
+    { t: '11:00', after: 'offsite', stop: 'for', for: 10 },
+    { t: '13:00', en: false, after: 'offsite', stop: 'for', for: 15 },
+    { t: '15:00', after: 'onsite' },
+    { t: '16:00' },
+  ], { driveTimeMin: 20, driveConsumptionKwh: 8 });
   assert.ok(x.r.metrics.trips && x.r.metrics.trips.length >= 2,
     'expected 2 offsite trips, got ' + (x.r.metrics.trips && x.r.metrics.trips.length));
   var t1 = x.r.metrics.trips[0];
@@ -358,15 +362,15 @@ test('skipped hour after=offsite launches a real second trip (drive+SC), not sil
   assert.equal(t2.originIndex, 4); // 13:00 skipped is index 4
   // Second trip must include drive legs (not pure CHARGE at track)
   assert.ok(t2.departMin != null && t2.scStartMin != null);
-  assert.ok(t2.scStartMin >= t2.departMin + 25, 'drive out ~30 min before SC');
+  assert.ok(t2.scStartMin >= t2.departMin + 15, 'drive out before SC');
   // While on second trip, no CHARGE mode at track
   if (t2.returnMin != null) {
     var m = modesIn(x.r, t2.departMin, t2.returnMin);
-    assert.ok((m.DRIVE || 0) > 20, JSON.stringify(m));
+    assert.ok((m.DRIVE || 0) > 15, JSON.stringify(m));
     assert.ok((m.SC || 0) >= 0);
   }
   // Supercharger energy should reflect at least one substantial SC stop
-  assert.ok(x.r.metrics.fromSuperchargerKwh > 20);
+  assert.ok(x.r.metrics.fromSuperchargerKwh > 10);
 });
 
 test('two offsite trips: first residual does not replace second trip with portable charge', () => {
@@ -506,7 +510,11 @@ test('timeline is contiguous minute-by-minute from arrival', () => {
   ]);
   var tl = x.r.timeline;
   assert.ok(tl.length > 100);
-  assert.equal(tl[0].min, x.p.arrivalTimeMin);
+  // Day starts at the pre-track charger (before track arrival)
+  var pre = x.r.metrics.preTrack;
+  assert.ok(pre);
+  assert.equal(tl[0].min, pre.scArriveMin);
+  assert.ok(pre.scArriveMin <= pre.trackArriveMin);
   for (var i = 1; i < tl.length; i++) {
     assert.equal(tl[i].min, tl[i - 1].min + 1, 'gap at i=' + i);
   }
@@ -794,6 +802,77 @@ test('DaySM tryStartTrip only from idle when queue ready', () => {
   assert.equal(D.tryStartTrip(trip, [{ gapStart: 0 }], 200, 30), false);
 });
 
+test('DaySM tryStartTrip drops until-next jobs that cannot return before mustReturnBy', () => {
+  var D = Sim.DaySM;
+  var trip = { phase: 'idle' };
+  // until-next: 2×30 min drive cannot finish before dest at t+40
+  var q = [{
+    gapStart: 100, sessionIndex: 3, originIndex: 2,
+    driveTimeMin: 30, mustReturnBy: 140, stopMode: 'next',
+  }];
+  assert.equal(D.tryStartTrip(trip, q, 100, 30), false);
+  assert.equal(trip.phase, 'idle');
+  assert.equal(q.length, 0);
+  // until-SoC still leaves even when round-trip cannot beat dest
+  trip = { phase: 'idle' };
+  q = [{
+    gapStart: 100, sessionIndex: 3, originIndex: 2,
+    driveTimeMin: 30, mustReturnBy: 140, stopMode: 'until', untilSocPct: 100,
+  }];
+  assert.equal(D.tryStartTrip(trip, q, 100, 30), true);
+  assert.equal(trip.phase, 'out');
+  // On-time exact turnaround for until-next (2×drive == window) is allowed
+  trip = { phase: 'idle' };
+  q = [{
+    gapStart: 100, sessionIndex: 3, originIndex: 2,
+    driveTimeMin: 20, mustReturnBy: 140, stopMode: 'next',
+  }];
+  assert.equal(D.tryStartTrip(trip, q, 100, 20), true);
+  assert.equal(trip.phase, 'out');
+});
+
+test('late skipped-hour until-next offsite does not steal the next enabled session', () => {
+  // Snapshot-16 shape: long earlier offsite, then skipped hour still marked
+  // after=offsite until-next → must not launch late and zero the following run.
+  var x = sim([
+    { t: '09:00', after: 'onsite' },
+    { t: '10:00', after: 'offsite', stop: 'next' },
+    { t: '11:00', en: false, after: 'offsite', stop: 'next' }, // skipped, kept until-next
+    { t: '13:00', after: 'onsite' },
+    { t: '14:00', after: 'offsite', stop: 'next' },
+    { t: '15:00', en: false, after: 'offsite', stop: 'next' }, // skipped 6
+    { t: '16:00' }, // session 7 — must be runnable when enabled
+  ], { driveTimeMin: 25, driveConsumptionKwh: 10 });
+  // 13:00 should run (not eaten by a late trip from the 11:00 skip)
+  var sched = Sim.buildSchedule(x.p);
+  var s13 = sched.find(function (s) { return s.startMin === 13 * 60; });
+  var mins13 = 0;
+  x.r.timeline.forEach(function (pt) {
+    if (pt.mode === 'SESSION' && pt.min >= s13.startMin && pt.min < s13.endMin) mins13++;
+  });
+  assert.ok(mins13 > 0, '13:00 SESSION min=' + mins13);
+
+  // Enabling 16:00 while 15:00 is still skipped+offsite until-next must not zero 16:00
+  x = sim([
+    { t: '09:00', after: 'onsite' },
+    { t: '10:00', after: 'onsite' },
+    { t: '11:00', after: 'onsite' },
+    { t: '13:00', after: 'onsite' },
+    { t: '14:00', after: 'offsite', stop: 'next' },
+    { t: '15:00', en: false, after: 'offsite', stop: 'next' },
+    { t: '16:00' },
+  ], { driveTimeMin: 13, driveConsumptionKwh: 5 });
+  var s16 = Sim.buildSchedule(x.p).find(function (s) { return s.startMin === 16 * 60; });
+  var mins16 = 0;
+  x.r.timeline.forEach(function (pt) {
+    if (pt.mode === 'SESSION' && pt.min >= s16.startMin && pt.min < s16.endMin) mins16++;
+  });
+  assert.ok(mins16 > 0, '16:00 SESSION min=' + mins16 + ' (skipped 15:00 until-next must not block)');
+  assert.ok(!(x.r.metrics.skippedSessions || []).some(function (s) {
+    return s.startMin === 16 * 60;
+  }), '16:00 should not be auto-missed');
+});
+
 test('simulate never emits CHARGE/SESSION while trip phase is away (timeline modes)', () => {
   var x = sim([
     { t: '09:00', after: 'offsite', stop: 'until', until: 100 },
@@ -908,8 +987,8 @@ test('continueActivityLabel prefixes Continue when activity started earlier', ()
     'Continue drive back');
   assert.equal(UI.continueActivityLabel('Charge offsite', 12 * 60 + 20, 13 * 60),
     'Continue charge offsite');
-  assert.equal(UI.continueActivityLabel('Charge at track', 14 * 60 + 24, 15 * 60),
-    'Continue charge at track');
+  assert.equal(UI.continueActivityLabel('Charge onsite', 14 * 60 + 24, 15 * 60),
+    'Continue charge onsite');
   assert.equal(UI.continueActivityLabel('Drive to Tumwater', 11 * 60 + 20, 12 * 60),
     'Continue drive to Tumwater');
   // First appearance in this window — no prefix
@@ -934,49 +1013,113 @@ test('layoutFullTripSegments keeps full drive/SC/back without window splits', ()
   assert.equal(segs.chargePadSeg, null);
 });
 
-test('sessionDisplayOrder moves away-missed skips after trip origin', () => {
-  // 9,10 enabled; 11 origin offsite; 13,14 disabled during trip; 15 enabled
+test('sessionDisplayOrder is chronological (missed sessions keep planned time)', () => {
+  // 11 origin offsite; 12 enabled; 13 missed during trip; 15 enabled
   var sched = [
-    { index: 1, startMin: 9 * 60, enabled: true },
-    { index: 2, startMin: 10 * 60, enabled: true },
-    { index: 3, startMin: 11 * 60, enabled: true },
-    { index: 4, startMin: 13 * 60, enabled: false },
-    { index: 5, startMin: 14 * 60, enabled: false },
-    { index: 6, startMin: 15 * 60, enabled: true },
-  ];
-  var trips = [{
-    originIndex: 3,
-    departMin: 11 * 60 + 20,
-    returnMin: 14 * 60 + 24,
-  }];
-  assert.equal(UI.isAwayMissedSession(sched[3], trips), true);
-  assert.equal(UI.isAwayMissedSession(sched[4], trips), true);
-  assert.equal(UI.isAwayMissedSession(sched[2], trips), false);
-  var order = UI.sessionDisplayOrder(sched, trips);
-  // 0,1,2 (9/10/11) then missed 13+14 (idx 3,4) then 15 (idx 5)
-  assert.deepEqual(order, [0, 1, 2, 3, 4, 5]);
-  // Chronological would also be that — use return before 14 so 14 is missed but
-  // 15 stays after; move 13+14 after origin even if a later enabled is between them
-  // in time… already after origin. Force 15 between in schedule with early return:
-  trips[0].returnMin = 13 * 60 + 30; // back mid-1pm hour
-  // 14:00 still after return → not away-missed; 13:00 is away-missed
-  assert.equal(UI.isAwayMissedSession(sched[3], trips), true); // 13:00
-  assert.equal(UI.isAwayMissedSession(sched[4], trips), false); // 14:00 after return
-  order = UI.sessionDisplayOrder(sched, trips);
-  // 9,10,11, then missed 13, then 14,15
-  assert.deepEqual(order, [0, 1, 2, 3, 4, 5]);
-
-  // Insert an enabled 12:00 so chronological has miss between sessions
-  sched = [
     { index: 1, startMin: 11 * 60, enabled: true },
-    { index: 2, startMin: 12 * 60, enabled: true }, // would be after origin in time but
+    { index: 2, startMin: 12 * 60, enabled: true },
     { index: 3, startMin: 13 * 60, enabled: false },
     { index: 4, startMin: 15 * 60, enabled: true },
   ];
-  // Trip from 11 covers 13 skip; 12 enabled stays in place chronologically before we
-  // would list misses — display: origin 11, miss 13, then 12, 15? User wants misses
-  // after drive-back (origin), so: 11, 13, 12, 15
-  trips = [{ originIndex: 1, departMin: 11 * 60 + 20, returnMin: 14 * 60 }];
-  order = UI.sessionDisplayOrder(sched, trips);
-  assert.deepEqual(order, [0, 2, 1, 3], 'missed 13 after origin 11, before later 12/15');
+  var trips = [{ originIndex: 1, departMin: 11 * 60 + 20, returnMin: 14 * 60 }];
+  assert.equal(UI.isAwayMissedSession(sched[2], trips), true);
+  // 0-duration missed row stays in time order (not moved after trip origin)
+  var order = UI.sessionDisplayOrder(sched, trips);
+  assert.deepEqual(order, [0, 1, 2, 3]);
+});
+
+test('buildDayActivities: one residual pad through skipped hours (file 12 shape)', () => {
+  // Session 3 offsite; return mid-day; 1pm missed, 2pm+3pm skipped, 4pm runs.
+  // Residual charge must be ONE pad from return → 4pm, not per-hour stubs.
+  var x = sim([
+    { t: '09:00', after: 'onsite' },
+    { t: '10:00', en: false, after: 'onsite' },
+    { t: '11:00', after: 'offsite', stop: 'until', until: 90 },
+    { t: '13:00', en: false, after: 'onsite' },
+    { t: '14:00', en: false, after: 'onsite' },
+    { t: '15:00', en: false, after: 'onsite' },
+    { t: '16:00' },
+  ], {
+    driveTimeMin: 30,
+    driveConsumptionKwh: 13,
+    gridEnabled: false,
+    siteChargingEnabled: true,
+    genEnabled: true,
+    batteryEnabled: true,
+  });
+  assert.ok(typeof UI.buildDayActivities === 'function');
+  var acts = UI.buildDayActivities(x.p, x.r);
+  var trips = x.r.metrics.trips || [];
+  assert.ok(trips.length >= 1, 'expected an offsite trip');
+  var trip = trips[0];
+  assert.ok(trip.returnMin != null, 'trip should return');
+
+  var pads = acts.filter(function (a) {
+    return (a.kind === 'pad_charge' || (a.kind === 'gap_control' && a.endMin > a.startMin)) &&
+      a.startMin >= trip.returnMin - 1;
+  });
+  // Single residual pad after return, not one per skipped hour / not twin text rows
+  assert.ok(pads.length >= 1, 'expected residual pad');
+  var residualPads = pads.filter(function (a) {
+    return a.startMin <= trip.returnMin + 1 && a.endMin > trip.returnMin;
+  });
+  assert.equal(residualPads.length, 1, 'one residual pad after return, got ' +
+    residualPads.map(function (a) { return a.kind + ':' + a.startMin + '-' + a.endMin; }).join(','));
+  var pad = residualPads[0];
+  assert.ok(near(pad.startMin, trip.returnMin, 1), 'pad starts at return');
+  // Extends to next enabled (4pm), not just next clock hour
+  assert.ok(pad.endMin >= 16 * 60 - 1, 'pad ends at/near next run session, end=' + pad.endMin);
+
+  // No duplicate: gap_control at session end must not also emit a text pad at same start
+  var afterSessPads = acts.filter(function (a) {
+    return a.kind === 'pad_charge' && a.editable && a.editable.after;
+  });
+  assert.equal(afterSessPads.length, 0, 'pad rows are not also after-editors');
+
+  // Missed/skipped are markers only (zero duration), no inventing charge under them
+  var markers = acts.filter(function (a) {
+    return a.kind === 'missed' || a.kind === 'skipped';
+  });
+  assert.ok(markers.length >= 1, 'expected missed/skipped markers');
+  markers.forEach(function (m) {
+    assert.equal(m.startMin, m.endMin, 'marker is zero-duration: ' + m.label);
+  });
+
+  // Starts are non-decreasing
+  for (var i = 1; i < acts.length; i++) {
+    assert.ok(acts[i].startMin >= acts[i - 1].startMin,
+      'start order: ' + acts[i - 1].kind + '@' + acts[i - 1].startMin +
+      ' then ' + acts[i].kind + '@' + acts[i].startMin);
+  }
+
+  // Trip legs present as single activities
+  assert.ok(acts.some(function (a) { return a.kind === 'drive_out'; }));
+  assert.ok(acts.some(function (a) { return a.kind === 'sc'; }));
+  assert.ok(acts.some(function (a) { return a.kind === 'drive_back'; }));
+});
+
+test('buildDayActivities: gap after onsite session merges through skips', () => {
+  var x = sim([
+    { t: '09:00', after: 'onsite' },
+    { t: '10:00', en: false, after: 'onsite' },
+    { t: '11:00', after: 'onsite' },
+  ], {
+    offsiteChargingEnabled: false,
+    gridEnabled: true,
+    siteChargingEnabled: false,
+    genEnabled: false,
+    batteryEnabled: false,
+  });
+  var acts = UI.buildDayActivities(x.p, x.r);
+  // One gap_control (dropdown + pad times), not a separate text pad_charge twin
+  var gaps = acts.filter(function (a) {
+    return a.kind === 'gap_control' && a.startMin >= 9 * 60 && a.startMin < 11 * 60 &&
+      !a.hideControl && a.endMin > a.startMin;
+  });
+  assert.equal(gaps.length, 1, 'one morning gap_control with pad times, got ' + gaps.length);
+  assert.ok(gaps[0].endMin >= 11 * 60 - 1);
+  var twinPads = acts.filter(function (a) {
+    return a.kind === 'pad_charge' && a.startMin >= 9 * 60 && a.startMin < 11 * 60;
+  });
+  assert.equal(twinPads.length, 0, 'no duplicate text pad alongside gap_control');
 });

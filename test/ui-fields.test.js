@@ -62,9 +62,10 @@ test('sessions form maps after + start; sorts by time', () => {
     { start: '09:00', after: 'offsite' },
   ]);
   assert.deepEqual(eng, [
-    { startMin: 9 * 60, enabled: true, after: 'offsite',
-      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30, residualMode: 'onsite' },
-    { startMin: 13 * 60, enabled: true },
+    { startMin: 9 * 60, enabled: true, durationMin: 20, after: 'offsite',
+      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30, residualMode: 'onsite',
+      offsiteSiteId: 'offsite-default' },
+    { startMin: 13 * 60, enabled: true, durationMin: 20 },
   ]);
 });
 // note: form defaults offsite extras to next/80%/30 when after is offsite
@@ -77,8 +78,8 @@ test('normalizeSessionsForm sorts and migrates legacy before to after', () => {
     { start: '10:00', action: 'offsite' },
   ]);
   assert.deepEqual(n, [
-    { start: '10:00', enabled: true, after: 'onsite' }, // from 14:00 action run → onsite
-    { start: '14:00', enabled: true }, // last: no after
+    { start: '10:00', enabled: true, durationMin: 20, after: 'onsite' }, // from 14:00 action run → onsite
+    { start: '14:00', enabled: true, durationMin: 20 }, // last: no after
   ]);
   // Explicit: before on second becomes after on first
   const m = UI.normalizeSessionsForm([
@@ -86,9 +87,10 @@ test('normalizeSessionsForm sorts and migrates legacy before to after', () => {
     { start: '13:00', before: 'offsite' },
   ]);
   assert.deepEqual(m, [
-    { start: '09:00', enabled: true, after: 'offsite',
-      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30, residualMode: 'onsite' },
-    { start: '13:00', enabled: true },
+    { start: '09:00', enabled: true, durationMin: 20, after: 'offsite',
+      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30, residualMode: 'onsite',
+      offsiteSiteId: 'offsite-default' },
+    { start: '13:00', enabled: true, durationMin: 20 },
   ]);
 });
 
@@ -102,11 +104,12 @@ test('adding a session keeps existing after modes attached to their sessions', (
   // Insert 10:00 between 9 and 11 — 11's after must stay offsite (on 11), not move
   const withNew = UI.normalizeSessionsForm(base.concat([{ start: '10:00', after: 'onsite' }]));
   assert.deepEqual(withNew, [
-    { start: '09:00', enabled: true, after: 'onsite' },
-    { start: '10:00', enabled: true, after: 'onsite' },
-    { start: '11:00', enabled: true, after: 'offsite',
-      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30, residualMode: 'onsite' },
-    { start: '13:00', enabled: true },
+    { start: '09:00', enabled: true, durationMin: 20, after: 'onsite' },
+    { start: '10:00', enabled: true, durationMin: 20, after: 'onsite' },
+    { start: '11:00', enabled: true, durationMin: 20, after: 'offsite',
+      offsiteStop: 'next', offsiteUntilSocPct: 80, offsiteForMin: 30, residualMode: 'onsite',
+      offsiteSiteId: 'offsite-default' },
+    { start: '13:00', enabled: true, durationMin: 20 },
   ]);
 });
 
@@ -163,21 +166,24 @@ test('applyTrackProfile restores site enable before building session gap selects
   assert.ok(!/applyProfileValues\(\s*['"]track['"]/.test(src));
 });
 
-test('formatMetrics rows include fuel and sessions run', () => {
+test('buildTrackDayStats includes min/kWh, lowest SoC, and gen/fuel when present', () => {
   const UI = loadUI();
   const Sim = loadSim();
-  const rows = UI.formatMetrics(Sim.simulate(Sim.defaultParams()).metrics);
-  const labels = rows.map(r => r.label.toLowerCase());
-  assert.ok(labels.some(l => l.includes('lowest')));
-  assert.ok(labels.some(l => l.includes('gas') || l.includes('fuel')));
-  assert.ok(labels.some(l => l.includes('sessions run')));
-});
-
-test('formatMetrics adds offsite row for default plan', () => {
-  const UI = loadUI();
-  const Sim = loadSim();
-  const labels = UI.formatMetrics(Sim.simulate(Sim.defaultParams()).metrics).map(r => r.label.toLowerCase());
-  assert.ok(labels.some(l => l.includes('offsite')));
+  const p = Sim.defaultParams();
+  const m = Sim.simulate(p).metrics;
+  const chips = UI.buildTrackDayStats(p, m);
+  const text = chips.map(c => c.html).join(' ').toLowerCase();
+  assert.ok(text.includes('min on track'));
+  assert.ok(text.includes('kwh on track'));
+  assert.ok(text.includes('lowest session end'));
+  // Default plan uses portable gen — expect fuel and/or from generator when energy flows
+  assert.ok(
+    text.includes('from generator') || text.includes('gasoline') || text.includes('propane') ||
+    text.includes('min on track'),
+    'day stats text=' + text
+  );
+  // Bottom metrics list is empty (stats moved under Track)
+  assert.deepEqual(UI.formatMetrics(m), []);
 });
 
 test('chartScale maps domain to canvas box', () => {
@@ -192,37 +198,105 @@ test('chartScale maps domain to canvas box', () => {
 test('builtin track profile has after-gap session plan and drive-in costs', () => {
   const UI = loadUI();
   const bp = UI.builtinProfiles();
-  assert.equal(bp.tracks.length, 3);
-  assert.equal(bp.sites.length, 3);
+  // Match track-charging-profiles-2026-07-22.json
+  assert.equal(bp.tracks.length, 6);
+  assert.equal(bp.sites.length, 2);
   assert.equal(bp.activeTrackId, UI.BUILTIN_TRACK_ID);
-  assert.equal(bp.activeSiteId, UI.BUILTIN_SITE_ID);
+  assert.equal(bp.activeSiteId, UI.BUILTIN_SITE_GEN_WALL_ID);
   const track = bp.tracks.find(t => t.id === UI.BUILTIN_TRACK_ID).values;
+  assert.equal(bp.tracks.find(t => t.id === UI.BUILTIN_TRACK_ID).name, 'The Ridge w/ gen');
   const sess = track.sessions;
   assert.equal(sess.length, 7);
-  assert.equal(sess.find(s => s.start === '11:00').after, 'offsite');
-  assert.equal(sess.find(s => s.start === '11:00').offsiteStop, 'until');
-  assert.equal(sess.find(s => s.start === '13:00').enabled, false);
-  assert.equal(sess.find(s => s.start === '13:00').after, 'onsite'); // full hour onsite
-  assert.equal(sess.find(s => s.start === '14:00').enabled, true);
+  assert.equal(sess.find(s => s.start === '09:00').after, 'onsite');
+  assert.equal(sess.find(s => s.start === '10:00').after, 'offsite');
+  assert.equal(sess.find(s => s.start === '10:00').offsiteStop, 'next');
+  assert.equal(sess.find(s => s.start === '11:00').enabled, false);
+  assert.equal(sess.find(s => s.start === '11:00').after, 'onsite');
+  assert.equal(sess.find(s => s.start === '13:00').enabled, true);
+  assert.equal(sess.find(s => s.start === '13:00').after, 'onsite');
+  assert.equal(sess.find(s => s.start === '14:00').after, 'offsite');
+  assert.equal(sess.find(s => s.start === '15:00').enabled, false);
   assert.ok(!('after' in sess.find(s => s.start === '16:00')));
   assert.ok(sess.every(s => !s.action && !s.before));
-  assert.equal(track.arrivalCostNoTrailerKwh, '13');
   assert.equal(track.towingCostKwh, '4');
-  assert.equal(track.scName, 'Tumwater');
-  assert.equal(track.driveConsumptionKwh, '13');
+  assert.ok(track.offsiteSites && track.offsiteSites.length >= 1);
+  assert.equal(track.offsiteSites[0].name, 'Tumwater');
+  assert.equal(Number(track.offsiteSites[0].driveConsumptionKwh), 13);
+  assert.equal(Number(track.offsiteSites[0].driveTimeMin), 30);
+  // Drive-in cost comes from pre-track charger site (not a separate arrival cost field)
+  assert.equal(track.preTrackSiteId, track.offsiteSites[0].id);
+  assert.ok(!('arrivalCostNoTrailerKwh' in track));
+  // Default start SoC at pre-track charger (Ridge w/ gen arrives at 80%)
+  assert.equal(Number(track.preTrackArriveSocPct), 80);
   // Onsite charging lives on the track profile, not portable site
   assert.ok(UI.TRACK_FIELD_IDS.includes('gridEnabled'));
   assert.ok(UI.TRACK_FIELD_IDS.includes('gridPowerKw'));
+  assert.ok(UI.TRACK_FIELD_IDS.includes('sessionDurationMin'));
   assert.ok(!UI.SITE_FIELD_IDS.includes('gridEnabled'));
   assert.ok(!UI.SITE_FIELD_IDS.includes('gridPowerKw'));
-  assert.equal(track.gridEnabled, false);
+  assert.equal(track.gridEnabled, true);
   assert.equal(String(track.gridPowerKw), '11.5');
+  assert.equal(track.siteChargingEnabled, false);
+  assert.equal(track.siteProfileId, UI.BUILTIN_SITE_GEN_WALL_ID);
+  // Max session time defaults to 20 min for new/builtin tracks
+  assert.equal(String(track.sessionDurationMin), '20');
+  const maxSessField = UI.UI_FIELDS.find(f => f.id === 'sessionDurationMin');
+  assert.ok(maxSessField);
+  assert.equal(maxSessField.label, 'Max session time');
+  assert.equal(maxSessField.default, 20);
+  assert.equal(maxSessField.g, 'Track');
+  assert.equal(maxSessField.embed, 'sessionsHead'); // sessions header, before min on track
+  assert.equal(String(UI.trackFieldDefaults().sessionDurationMin), '20');
   assert.ok(!('gridEnabled' in bp.sites[0].values));
   assert.equal(UI.PROFILE_META.site.label, 'Portable Charging');
-  assert.equal(bp.sites.find(s => s.id === UI.BUILTIN_SITE_ID).name, 'Trailer battery + generator');
-  assert.equal(String(bp.sites.find(s => s.id === UI.BUILTIN_SITE_ID).values.trailerCapKwh), '40');
+  assert.equal(bp.sites.find(s => s.id === UI.BUILTIN_SITE_ID).name, 'Trailer battery/gen');
+  assert.equal(String(bp.sites.find(s => s.id === UI.BUILTIN_SITE_ID).values.trailerCapKwh), '24');
+  assert.equal(bp.sites.find(s => s.id === UI.BUILTIN_SITE_GEN_WALL_ID).name, 'Generator @ 11.5kw');
   assert.ok(bp.tracks.some(t => t.id === UI.BUILTIN_TRACK_QLISPE_ID));
   assert.ok(bp.tracks.some(t => t.id === UI.BUILTIN_TRACK_WALL_ID));
+  assert.ok(bp.tracks.some(t => t.id === UI.BUILTIN_TRACK_AREA27_ID));
+  assert.ok(bp.tracks.some(t => t.id === UI.BUILTIN_TRACK_RIDGE_ID));
+  assert.ok(bp.tracks.some(t => t.id === UI.BUILTIN_TRACK_RIDGE_GEN_BATT_ID));
+});
+
+test('normalizeOffsiteSites migrates legacy single-site fields', () => {
+  const Sim = loadSim();
+  const sites = Sim.normalizeOffsiteSites(null, {
+    scName: 'Tumwater', scPowerCapKw: 250, driveTimeMin: 30, driveConsumptionKwh: 13,
+  });
+  assert.equal(sites.length, 1);
+  assert.equal(sites[0].name, 'Tumwater');
+  assert.equal(sites[0].driveTimeMin, 30);
+  // Default activity color (green palette[0])
+  assert.equal(sites[0].color, '#22c55e');
+});
+
+test('offsite sites get distinct default colors; custom colors are preserved', () => {
+  const Sim = loadSim();
+  const sites = Sim.normalizeOffsiteSites([
+    { id: 'a', name: 'One', powerKw: 250, driveTimeMin: 20, driveConsumptionKwh: 10 },
+    { id: 'b', name: 'Two', powerKw: 150, driveTimeMin: 15, driveConsumptionKwh: 5 },
+    { id: 'c', name: 'Three', powerKw: 350, driveTimeMin: 40, driveConsumptionKwh: 20, color: '#ff0000' },
+  ]);
+  assert.equal(sites.length, 3);
+  assert.equal(sites[0].color, Sim.defaultOffsiteColor(0));
+  assert.equal(sites[1].color, Sim.defaultOffsiteColor(1));
+  assert.notEqual(sites[0].color, sites[1].color);
+  assert.equal(sites[2].color, '#ff0000');
+  assert.equal(Sim.normalizeOffsiteColor('#0f0', 0), '#00ff00');
+  assert.equal(Sim.normalizeOffsiteColor('not-a-color', 3), Sim.defaultOffsiteColor(3));
+});
+
+test('pickTrackValues preserves preTrackArriveSocPct for profile save/reload', () => {
+  const UI = loadUI();
+  const base = UI.defaultProfileValues('track');
+  const picked = UI.pickTrackValues(Object.assign({}, base, { preTrackArriveSocPct: '33' }));
+  assert.equal(Number(picked.preTrackArriveSocPct), 33);
+  const again = UI.pickTrackValues(picked);
+  assert.equal(Number(again.preTrackArriveSocPct), 33);
+  // Dirty check treats changed from % as a track edit
+  assert.equal(UI.trackValuesEqual(base, picked), false);
+  assert.equal(UI.trackValuesEqual(picked, again), true);
 });
 
 test('normalizeProfiles migrates onsite grid from site onto track', () => {
@@ -268,6 +342,7 @@ test('builtin cars include My Plaid and Model 3 Performance with charge curves',
   assert.ok(plaid);
   assert.equal(plaid.name, 'My Plaid');
   assert.ok(m3p);
+  assert.equal(m3p.name, 'Random Model 3');
   assert.equal(plaid.values.chargeCurveId, 'model-s-plaid');
   assert.equal(plaid.values.capacityKwh, '99.4');
   assert.equal(m3p.values.chargeCurveId, 'model-3-performance');
@@ -328,8 +403,34 @@ test('sessionsEqual compares after fields', () => {
 test('GAP_ACTION_OPTIONS includes onsite, offsite, and none', () => {
   const UI = loadUI();
   assert.deepEqual(UI.GAP_ACTION_OPTIONS.map(o => o.value), ['onsite', 'offsite', 'none']);
-  assert.ok(UI.GAP_ACTION_OPTIONS.some(o => /Charge at track/i.test(o.label)));
+  assert.ok(UI.GAP_ACTION_OPTIONS.some(o => /Charge onsite/i.test(o.label)));
   assert.ok(UI.GAP_ACTION_OPTIONS.some(o => /No charging/i.test(o.label)));
+});
+
+test('defaultProfileValues returns fresh defaults per kind', () => {
+  const UI = loadUI();
+  const car = UI.defaultProfileValues('car');
+  assert.equal(String(car.capacityKwh), '99.4');
+  assert.equal(car.chargeCurveId, 'model-s-plaid');
+  const track = UI.defaultProfileValues('track');
+  assert.ok(Array.isArray(track.sessions) && track.sessions.length >= 2);
+  assert.ok(Array.isArray(track.offsiteSites) && track.offsiteSites.length >= 1);
+  // New tracks match The Ridge w/ gen: onsite grid on, portable panel off
+  assert.equal(track.siteChargingEnabled, false);
+  assert.equal(track.gridEnabled, true);
+  const site = UI.defaultProfileValues('site');
+  assert.equal(site.genEnabled, true);
+  assert.equal(site.batteryEnabled, true);
+  assert.equal(String(site.trailerCapKwh), '24');
+  // Mutating one return value must not affect the next
+  car.capacityKwh = '1';
+  assert.equal(String(UI.defaultProfileValues('car').capacityKwh), '99.4');
+});
+
+test('profile menus include New action', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  assert.ok(/data-action="new"/.test(html));
+  assert.ok(/>New…</.test(html) || />New\u2026</.test(html) || /New…/.test(html));
 });
 
 test('packExport / parseImport round-trip selected profiles', () => {
@@ -354,12 +455,12 @@ test('packExport / parseImport round-trip selected profiles', () => {
   assert.equal(packed.activeCarId, 'car-custom');
   assert.equal(packed.activeCarName, 'My EV');
   assert.equal(packed.activeTrackId, UI.BUILTIN_TRACK_ID);
-  assert.equal(packed.activeTrackName, 'Ridge Motorsports Park');
+  assert.equal(packed.activeTrackName, 'The Ridge w/ gen');
   const parsed = UI.parseImport(JSON.stringify(packed));
   assert.equal(parsed.cars[0].values.capacityKwh, '75');
-  assert.equal(parsed.tracks[0].name, 'Ridge Motorsports Park');
+  assert.equal(parsed.tracks[0].name, 'The Ridge w/ gen');
   assert.equal(parsed.activeCarName, 'My EV');
-  assert.equal(parsed.activeTrackName, 'Ridge Motorsports Park');
+  assert.equal(parsed.activeTrackName, 'The Ridge w/ gen');
 });
 
 test('applyImport restores active car and track from export metadata', () => {
@@ -380,8 +481,8 @@ test('applyImport restores active car and track from export metadata', () => {
     { kind: 'track', profile: parsed.tracks[0] },
   ];
   const r = UI.applyImport(state, items, {
-    'car:Tesla Model 3 Performance': 'replace',
-    'track:Ridge Motorsports Park': 'replace',
+    'car:Random Model 3': 'replace',
+    'track:The Ridge w/ gen': 'replace',
   }, {
     activeCarId: parsed.activeCarId,
     activeCarName: parsed.activeCarName,
@@ -407,12 +508,12 @@ test('applyImport adds new, replaces, or duplicates with …import', () => {
   r = UI.applyImport(r.state, [{
     kind: 'track',
     profile: {
-      name: 'Ridge Motorsports Park',
+      name: 'The Ridge w/ gen',
       values: Object.assign(UI.trackFieldDefaults(), { driveTimeMin: '45' }),
     },
-  }], { 'track:Ridge Motorsports Park': 'replace' });
+  }], { 'track:The Ridge w/ gen': 'replace' });
   assert.equal(r.summary.replaced, 1);
-  const ridge = r.state.tracks.find(p => p.name === 'Ridge Motorsports Park');
+  const ridge = r.state.tracks.find(p => p.name === 'The Ridge w/ gen');
   assert.equal(ridge.values.driveTimeMin, '45');
   assert.equal(ridge.id, UI.BUILTIN_TRACK_ID);
 

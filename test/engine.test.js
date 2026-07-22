@@ -31,12 +31,12 @@ function fullDay(over) {
   });
   return cfg(Object.assign({ sessions: sessions }, over || {}));
 }
-// Gap after 11am is onsite instead of offsite (no 1pm trip).
+// All offsite gaps become onsite (no SC trips).
 function noOffsite(over) {
   var sessions = Sim.defaultSessionPlan().map(function (s) {
     var o = { startMin: s.startMin };
-    if (s.after != null) o.after = s.after;
-    if (s.startMin === 11 * 60) o.after = 'onsite';
+    if (s.enabled === false) o.enabled = false;
+    if (s.after != null) o.after = s.after === 'offsite' ? 'onsite' : s.after;
     return o;
   });
   return cfg(Object.assign({ sessions: sessions }, over || {}));
@@ -69,27 +69,48 @@ test('Model 3 Performance curve peaks early then tapers below Plaid mid-pack', (
   assert.ok(Sim.curvePower(80, 'model-3-performance') < Sim.curvePower(80, 'model-s-plaid'));
 });
 
-test('defaultParams: every session is a run; after 11am is offsite', () => {
+test('defaultParams: Ridge w/ gen plan — offsite after 10 & 14, skip 11 & 15', () => {
   var p = Sim.defaultParams();
   assert.equal(p.sessionDurationMin, 20);
   assert.equal(p.towingCostKwh, 4);
   assert.equal(p.driveConsumptionKwh, 13);
   assert.equal(p.scName, 'Tumwater');
-  assert.equal(p.trailerCapKwh, 40);
+  assert.equal(p.trailerCapKwh, 24);
+  assert.equal(p.dcPowerKw, 30);
+  assert.equal(p.coolingPowerKw, 6);
+  assert.equal(p.coolingDurationMin, 20);
   assert.equal(p.sessions.length, 7);
   assert.deepEqual(p.sessions.map(s => s.startMin), [9*60, 10*60, 11*60, 13*60, 14*60, 15*60, 16*60]);
-  assert.equal(p.sessions.find(s => s.startMin === 11 * 60).after, 'offsite');
-  assert.equal(p.sessions.find(s => s.startMin === 13 * 60).enabled, false);
-  // Enabled non-last non-offsite gaps are onsite (9, 10, 14, 15)
-  assert.ok(p.sessions.filter(s => s.enabled !== false && s.startMin !== 11 * 60 && s.startMin !== 16 * 60)
-    .every(s => s.after === 'onsite'));
+  assert.equal(p.sessions.find(s => s.startMin === 9 * 60).after, 'onsite');
+  assert.equal(p.sessions.find(s => s.startMin === 10 * 60).after, 'offsite');
+  assert.equal(p.sessions.find(s => s.startMin === 11 * 60).enabled, false);
+  assert.equal(p.sessions.find(s => s.startMin === 11 * 60).after, 'onsite');
+  assert.equal(p.sessions.find(s => s.startMin === 13 * 60).after, 'onsite');
+  assert.equal(p.sessions.find(s => s.startMin === 14 * 60).after, 'offsite');
+  assert.equal(p.sessions.find(s => s.startMin === 15 * 60).enabled, false);
   assert.equal(p.sessions.find(s => s.startMin === 16 * 60).after, undefined);
   assert.equal('supercharge' in p, false);
 });
 
 test('effectiveArrivalKwh subtracts arrival + towing costs from capacity', () => {
-  // 99.4 − 13 (drive-in) − 4 (tow) = 82.4
-  assert.ok(near(Sim.effectiveArrivalKwh(Sim.defaultParams()), 82.4, 1e-9));
+  // 99.4 − 13 (pre-track site drive-in) − 4 (tow) = 82.4
+  var p = Sim.defaultParams();
+  assert.equal(Sim.arrivalDriveCostKwh(p), 13);
+  assert.ok(near(Sim.effectiveArrivalKwh(p), 82.4, 1e-9));
+});
+
+test('arrivalDriveCostKwh follows preTrackSiteId offsite site cost', () => {
+  var p = Sim.defaultParams();
+  p.offsiteSites = [
+    { id: 'a', name: 'Near', powerKw: 250, driveTimeMin: 10, driveConsumptionKwh: 3 },
+    { id: 'b', name: 'Far', powerKw: 250, driveTimeMin: 40, driveConsumptionKwh: 18 },
+  ];
+  p.preTrackSiteId = 'b';
+  assert.equal(Sim.arrivalDriveCostKwh(p), 18);
+  p.preTrackSiteId = 'a';
+  assert.equal(Sim.arrivalDriveCostKwh(p), 3);
+  // 99.4 − 3 − 4 = 92.4
+  assert.ok(near(Sim.effectiveArrivalKwh(p), 92.4, 1e-9));
 });
 
 test('towing cost is 0 when neither generator nor battery is selected', () => {
@@ -120,10 +141,14 @@ test('buildSchedule: sorts, attaches gap bounds; first gap always onsite', () =>
   assert.equal(s[0].gapStart, 8 * 60); // arrival
   assert.equal(s[0].gapEnd, 9 * 60);
   assert.equal(s[0].before, 'onsite'); // first session: no choice, always onsite
-  assert.equal(s[2].after, 'offsite'); // after 11am session
-  assert.equal(s[3].before, 'offsite'); // derived for 1pm gap
-  assert.equal(s[3].gapStart, 11 * 60 + 20); // after 11 session ends
+  assert.equal(s[1].after, 'offsite'); // after 10am session
+  assert.equal(s[2].before, 'offsite'); // 11am gap inherits prior after
+  assert.equal(s[2].enabled, false);
+  assert.equal(s[2].after, 'onsite');
+  assert.equal(s[3].before, 'onsite'); // 1pm inherits skipped hour mode
+  assert.equal(s[3].gapStart, 11 * 60 + 20); // after skipped slot's nominal end
   assert.equal(s[3].gapEnd, 13 * 60);
+  assert.equal(s[4].after, 'offsite'); // after 14:00
   assert.equal(s[6].after, null); // last session has no after
 });
 
@@ -166,10 +191,10 @@ test('siteSources: onsite grid works when portable panel is off', () => {
   }), false);
 });
 
-test('chargeDelivery: mid-SoC is governed by the 40 kW DC-DC cap', () => {
+test('chargeDelivery: mid-SoC is governed by the 30 kW DC-DC cap', () => {
   var r = Sim.chargeDelivery(50, 60, 50, Sim.defaultParams());
-  assert.ok(Math.abs(r.deliverKw - 40) < 1e-6);
-  assert.ok(Math.abs(r.fromGenBusKw - 12.22) < 1e-3);
+  assert.ok(Math.abs(r.deliverKw - 30) < 1e-6);
+  assert.ok(Math.abs(r.fromGenBusKw - 12.22) < 1e-3); // 13 kW gen × 0.94 AC-DC
 });
 
 test('chargeDelivery: grid EV connector charges car directly', () => {
@@ -224,7 +249,7 @@ test('chargeDelivery: AC-DC only applies when both gen and battery are on', () =
 
 test('chargeDelivery: trailer cannot discharge below its minimum SoC floor', () => {
   var p = Sim.defaultParams();
-  // Floor = minTrailerSocPct% of trailerCapKwh (default 5% of 40 kWh = 2.0)
+  // Floor = minTrailerSocPct% of trailerCapKwh (default 5% of 24 kWh = 1.2)
   var floorKwh = p.minTrailerSocPct / 100 * p.trailerCapKwh;
   var atFloor = Sim.chargeDelivery(50, 60, floorKwh, p);
   assert.ok(Math.abs(atFloor.fromTrailerBusKw - 0) < 1e-6);
@@ -233,17 +258,103 @@ test('chargeDelivery: trailer cannot discharge below its minimum SoC floor', () 
 test('simulate: timeline spans arrival through 1 hour after last session', () => {
   var p = fullDay();
   var r = Sim.simulate(p);
-  assert.equal(r.timeline[0].min, 8 * 60);
+  var pre = r.metrics.preTrack;
+  assert.ok(pre);
+  assert.equal(r.timeline[0].min, pre.scArriveMin);
   // End-of-day SoC is taken after 1 hour of post-last-session charging
   assert.equal(r.timeline[r.timeline.length - 1].min, 16 * 60 + p.sessionDurationMin + 60 - 1);
 });
 
-test('simulate: a session removes ~sessionEnergy from the pack', () => {
+test('simulate: first SC minute carPctStart matches preTrackArriveSocPct (not post-charge)', () => {
+  var p = Sim.defaultParams();
+  p.preTrackArriveSocPct = 20;
+  var r = Sim.simulate(p);
+  var pre = r.metrics.preTrack;
+  assert.ok(pre);
+  assert.equal(pre.scArriveSocPct, 20);
+  var first = r.timeline[0];
+  assert.equal(first.mode, 'SC');
+  // Entering the first SC minute must equal the "from" SoC (not ~+4% after 1 min @ 250 kW)
+  assert.ok(Math.abs(first.carPctStart - 20) < 0.6,
+    'carPctStart=' + first.carPctStart + ' expected ~20');
+  // End-of-minute sample is after charging and should be higher
+  assert.ok(first.carPct > first.carPctStart + 1,
+    'carPct end-of-min should rise, start=' + first.carPctStart + ' end=' + first.carPct);
+});
+
+test('planPreTrack: arrive no later than; earlier when charge needs time for 100%', () => {
+  var p = Sim.defaultParams();
+  // Portable on → at-track charge available
+  p.gridEnabled = false;
+  p.siteChargingEnabled = true;
+  p.genEnabled = true;
+  p.batteryEnabled = true;
+  p.arrivalTimeMin = 8 * 60; // no later than 8:00
+  var pre = Sim.planPreTrack(p);
+  assert.equal(pre.atTrackMode, 'onsite');
+  assert.equal(pre.noLaterThanMin, 8 * 60);
+  assert.ok(pre.scArriveMin < pre.leaveScMin);
+  assert.ok(pre.leaveScMin <= pre.trackArriveMin || pre.driveTimeMin === 0);
+  assert.ok(pre.trackArriveMin <= pre.firstSessionMin);
+  // Need time to charge after drive-in drain → actual arrival ≤ no-later-than
+  assert.ok(pre.trackArriveMin <= pre.noLaterThanMin);
+  // Late no-later-than: still arrive early enough for 100%
+  p.arrivalTimeMin = pre.firstSessionMin - 5;
+  pre = Sim.planPreTrack(p);
+  assert.ok(pre.autoArrive, 'should arrive earlier than no-later-than when charge needs more time');
+  assert.ok(pre.trackArriveMin < pre.noLaterThanMin);
+  assert.ok(pre.atTrackChargeMin >= 5);
+  // No at-track power: arrive exactly at no-later-than
+  p.siteChargingEnabled = false;
+  p.genEnabled = false;
+  p.batteryEnabled = false;
+  p.gridEnabled = false;
+  p.arrivalTimeMin = 8 * 60;
+  pre = Sim.planPreTrack(p);
+  assert.equal(pre.atTrackMode, 'none');
+  assert.ok(!pre.autoArrive);
+  assert.equal(pre.trackArriveMin, 8 * 60);
+  assert.equal(pre.noLaterThanMin, 8 * 60);
+});
+
+test('simulate: a 20-min session removes ~sessionEnergy from the pack', () => {
   var p = Sim.defaultParams();
   var r = Sim.simulate(p);
   function kwhAt(min) { return r.timeline.find(x => x.min === min).carPct / 100 * p.capacityKwh; }
   var drop = kwhAt(9 * 60 - 1) - kwhAt(9 * 60 + p.sessionDurationMin - 1);
   assert.ok(near(drop, p.sessionEnergyKwh, 0.6));
+});
+
+test('sessionEnergyKwh is per 20 min; longer/shorter sessions prorate', () => {
+  assert.equal(Sim.SESSION_ENERGY_REF_MIN, 20);
+  assert.ok(near(Sim.sessionEnergyForMinutes({ sessionEnergyKwh: 35 }, 20), 35, 1e-9));
+  assert.ok(near(Sim.sessionEnergyForMinutes({ sessionEnergyKwh: 35 }, 40), 70, 1e-9));
+  assert.ok(near(Sim.sessionEnergyForMinutes({ sessionEnergyKwh: 35 }, 10), 17.5, 1e-9));
+  // Draw power is constant: 35 kWh / (20/60 h) = 105 kW
+  assert.ok(near(Sim.sessionDrawKw({ sessionEnergyKwh: 35 }), 105, 1e-9));
+
+  var p = Sim.defaultParams();
+  p.sessionEnergyKwh = 40;
+  p.sessionDurationMin = 40; // track max must allow the 40-min session
+  p.preSessionAtTrack = 'none';
+  p.arrivalTimeMin = 8 * 60;
+  p.gridEnabled = true;
+  p.genEnabled = false;
+  p.batteryEnabled = false;
+  // One 10-min and one 40-min session; no offsite
+  p.sessions = [
+    { startMin: 9 * 60, enabled: true, durationMin: 10, after: 'onsite' },
+    { startMin: 11 * 60, enabled: true, durationMin: 40, after: 'onsite' },
+  ];
+  var r = Sim.simulate(p);
+  function kwhAt(min) {
+    var pt = r.timeline.find(x => x.min === min);
+    return pt.carPct / 100 * p.capacityKwh;
+  }
+  var drop10 = kwhAt(9 * 60 - 1) - kwhAt(9 * 60 + 10 - 1);
+  var drop40 = kwhAt(11 * 60 - 1) - kwhAt(11 * 60 + 40 - 1);
+  assert.ok(near(drop10, 20, 0.8), '10-min drop=' + drop10 + ' expected ~20');
+  assert.ok(near(drop40, 80, 1.2), '40-min drop=' + drop40 + ' expected ~80');
 });
 
 test('fullDay: 7 sessions run, no offsite', () => {
@@ -319,8 +430,12 @@ test('until-next-session leaves in time for the following session', () => {
   });
   var r = Sim.simulate(p);
   assert.ok(r.metrics.sc && r.metrics.sc.returnMin != null);
-  // Next enabled session after 11 is 14:00 (13:00 is skipped in the default Ridge plan)
-  assert.ok(r.metrics.sc.returnMin <= 14 * 60);
+  // Default plan: first offsite after 10 → next enabled is 13:00; second after 14 → 16:00.
+  // metrics.sc is the last completed trip (after 14), so return by 16:00.
+  assert.ok(r.metrics.sc.returnMin <= 16 * 60);
+  if (r.metrics.trips && r.metrics.trips[0]) {
+    assert.ok(r.metrics.trips[0].returnMin <= 13 * 60);
+  }
 });
 
 test('after offsite return, residual paddock charges onsite even if skipped hour is none', () => {
@@ -356,17 +471,40 @@ test('every run session that runs is whole', () => {
   assert.equal(sessionMinutes, r.metrics.sessionsRun * p.sessionDurationMin);
 });
 
-test('pre-session cooling on first onsite gap', () => {
+test('cooling power decays exponentially after heat event', () => {
+  assert.ok(near(Sim.coolingPowerAtElapsed(0, 6, 20), 6, 1e-9));
+  assert.ok(Sim.coolingPowerAtElapsed(20, 6, 20) === 0);
+  // At mid duration still positive but well below start
+  var mid = Sim.coolingPowerAtElapsed(10, 6, 20);
+  assert.ok(mid > 0 && mid < 3, 'mid cool=' + mid);
+});
+
+test('pre-session cooling applies cool curve after track arrival', () => {
   var p = fullDay();
+  p.coolingPowerKw = 6;
+  p.coolingDurationMin = 20;
+  p.preSessionAtTrack = 'none';
+  p.arrivalTimeMin = 8 * 60;
   var r = Sim.simulate(p);
-  var pre = r.timeline.filter(pt => pt.min >= 8 * 60 && pt.min < 9 * 60);
-  var coolKwh = pre.reduce((s, pt) => s + (pt.coolingKw || 0), 0) / 60;
-  assert.ok(near(coolKwh, p.preSessionCoolingKwh, 0.2));
+  var pre = r.metrics.preTrack;
+  var trackArrive = pre.trackArriveMin;
+  var first = pre.firstSessionMin;
+  var pts = r.timeline.filter(pt => pt.min >= trackArrive && pt.min < first);
+  assert.ok(pts.length > 0);
+  // First minute at track should have near-full cool power
+  assert.ok(pts[0].coolingKw > 4, 'start cool=' + pts[0].coolingKw);
+  // Cool should decay (not flat kWh lump)
+  if (pts.length > 10) {
+    assert.ok(pts[0].coolingKw > pts[Math.min(15, pts.length - 1)].coolingKw);
+  }
 });
 
 test('pre-session cooling drains pack when site cannot charge (IDLE)', () => {
   var p = cfg({
-    preSessionCoolingKwh: 5,
+    coolingPowerKw: 6,
+    coolingDurationMin: 20,
+    preSessionAtTrack: 'none',
+    arrivalTimeMin: 8 * 60,
     gridEnabled: false,
     siteChargingEnabled: false,
     genEnabled: false,
@@ -379,19 +517,25 @@ test('pre-session cooling drains pack when site cannot charge (IDLE)', () => {
   });
   assert.equal(Sim.siteCanCharge(p), false);
   var r = Sim.simulate(p);
-  var pre = r.timeline.filter(pt => pt.min >= 8 * 60 && pt.min < 9 * 60);
+  var trackArrive = r.metrics.preTrack.trackArriveMin;
+  var pre = r.timeline.filter(pt => pt.min >= trackArrive && pt.min < 9 * 60);
   assert.ok(pre.every(pt => pt.mode === 'IDLE'));
   var coolKwh = pre.reduce((s, pt) => s + (pt.coolingKw || 0), 0) / 60;
-  assert.ok(near(coolKwh, 5, 0.2), 'cool painted=' + coolKwh);
+  // Integral of 6·e^(−3t/20) over ~20 min ≈ 6*(20/60)/3*(1−e^−3) ≈ 0.63 kWh
+  // Window may be shorter if arrival is late — just require positive cool drain
+  assert.ok(coolKwh > 0.2, 'cool energy=' + coolKwh);
   var a = pre[0].carPct;
   var b = pre[pre.length - 1].carPct;
-  var dKwh = (a - b) / 100 * p.capacityKwh;
-  assert.ok(near(dKwh, 5, 0.3), 'pack should drop ~5 kWh, got ' + dKwh);
+  assert.ok(a > b, 'pack should drop while cooling idle');
 });
 
 test('pre-session cooling reduces net gain when charge power is limited', () => {
+  // Cool load steals bus power during pre-session CHARGE and reduces net pack gain.
+  // Compare the last 20 min before first session so auto-earlier arrivals still overlap.
   var base = {
-    preSessionCoolingKwh: 5,
+    coolingPowerKw: 6,
+    coolingDurationMin: 20,
+    arrivalTimeMin: 8 * 60 + 40,
     gridEnabled: true,
     gridPowerKw: 11.5,
     siteChargingEnabled: false,
@@ -404,22 +548,20 @@ test('pre-session cooling reduces net gain when charge power is limited', () => 
     ],
   };
   var withCool = Sim.simulate(cfg(base));
-  var noCool = Sim.simulate(cfg(Object.assign({}, base, { preSessionCoolingKwh: 0 })));
-  function gain(r) {
-    var pre = r.timeline.filter(pt => pt.min >= 8 * 60 && pt.min < 9 * 60);
-    return (pre[pre.length - 1].carPct - pre[0].carPct) / 100 * base.capacityKwh;
-  }
-  // defaultParams capacity — use same from first result
+  var noCool = Sim.simulate(cfg(Object.assign({}, base, { coolingPowerKw: 0 })));
   var cap = Sim.defaultParams().capacityKwh;
-  var g0 = (function () {
-    var pre = noCool.timeline.filter(pt => pt.min >= 8 * 60 && pt.min < 9 * 60);
-    return (pre[pre.length - 1].carPct - pre[0].carPct) / 100 * cap;
-  })();
-  var g1 = (function () {
-    var pre = withCool.timeline.filter(pt => pt.min >= 8 * 60 && pt.min < 9 * 60);
-    return (pre[pre.length - 1].carPct - pre[0].carPct) / 100 * cap;
-  })();
-  assert.ok(g0 - g1 > 4, 'cooling should cut ~5 kWh of net gain: ' + g0 + ' vs ' + g1);
+  var tB = 9 * 60;
+  var from = tB - 20;
+  function gainFromStart(r, a, b) {
+    var pre = r.timeline.filter(pt => pt.min >= a && pt.min < b);
+    if (!pre.length) return 0;
+    var s = pre[0].carPctStart != null ? pre[0].carPctStart : pre[0].carPct;
+    var e = pre[pre.length - 1].carPct;
+    return (e - s) / 100 * cap;
+  }
+  var g0 = gainFromStart(noCool, from, tB);
+  var g1 = gainFromStart(withCool, from, tB);
+  assert.ok(g0 > g1 + 0.05, 'cooling should reduce net gain: ' + g0 + ' vs ' + g1);
 });
 
 test('feasibility low is during a session', () => {

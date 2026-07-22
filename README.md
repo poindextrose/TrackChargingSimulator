@@ -11,13 +11,13 @@ with **onsite**, **portable**, and **offsite** charging options between sessions
 
 ## Defaults
 
-Shipped with example profiles (export `track-charging-profiles-2026-07-21.json`):
+Shipped with example profiles (export `track-charging-profiles-2026-07-22.json`):
 
 | Kind | Profiles |
 |------|----------|
-| **EV** | My Plaid, Tesla Model 3 Performance |
-| **Track** | Ridge Motorsports Park (default), Qlispe Raceway Park, Example track with wall connector |
-| **Portable** | Trailer battery + generator (default), Generator + wall connector, 9.6kW connector |
+| **EV** | My Plaid (default), Random Model 3 |
+| **Track** | The Ridge w/ gen (default), The Ridge, The Ridge w/ gen+battery, Area 27, Qlispe Raceway Park, Pacific Raceway |
+| **Portable** | Generator @ 11.5kw (default), Trailer battery/gen |
 
 ## Usage
 

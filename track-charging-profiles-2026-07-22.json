@@ -1,0 +1,624 @@
+{
+  "format": "tcs-profiles",
+  "version": 1,
+  "exportedAt": "2026-07-22T02:57:56.649Z",
+  "cars": [
+    {
+      "id": "car-plaid",
+      "name": "My Plaid",
+      "values": {
+        "chargeCurveId": "model-s-plaid",
+        "capacityKwh": "99.4",
+        "sessionEnergyKwh": "35",
+        "coolingPowerKw": "6",
+        "coolingDurationMin": "20",
+        "sessionEndReserveKwh": "20"
+      }
+    },
+    {
+      "id": "car-m3p",
+      "name": "Random Model 3",
+      "values": {
+        "chargeCurveId": "model-3-performance",
+        "capacityKwh": "75",
+        "sessionEnergyKwh": "28",
+        "coolingPowerKw": "6",
+        "coolingDurationMin": "20",
+        "sessionEndReserveKwh": "15"
+      }
+    }
+  ],
+  "tracks": [
+    {
+      "id": "track-qlispe",
+      "name": "Qlispe Raceway Park",
+      "values": {
+        "sessionDurationMin": "20",
+        "towingCostKwh": "4",
+        "gridEnabled": false,
+        "gridPowerKw": "11.5",
+        "atTrackNoneColor": "#f59e0b",
+        "atTrackOnsiteColor": "#a78bfa",
+        "atTrackPortableColor": "#3b82f6",
+        "sessions": [
+          {
+            "start": "09:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "10:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "11:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "13:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "14:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "15:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "16:00",
+            "enabled": true,
+            "durationMin": 20
+          }
+        ],
+        "siteProfileId": "site-trailer",
+        "siteChargingEnabled": false,
+        "offsiteChargingEnabled": true,
+        "preSessionAtTrack": "onsite",
+        "preTrackArriveSocPct": 20,
+        "arrivalTime": "08:00",
+        "offsiteSites": [
+          {
+            "id": "offsite-qlispe",
+            "name": "Supercharger",
+            "powerKw": 250,
+            "driveTimeMin": 10,
+            "driveConsumptionKwh": 2,
+            "color": "#22c55e"
+          }
+        ],
+        "preTrackSiteId": "offsite-qlispe"
+      }
+    },
+    {
+      "id": "track-wall-example",
+      "name": "Pacific Raceway",
+      "values": {
+        "sessionDurationMin": "20",
+        "towingCostKwh": "4",
+        "gridEnabled": true,
+        "gridPowerKw": "9.6",
+        "atTrackNoneColor": "#f59e0b",
+        "atTrackOnsiteColor": "#a78bfa",
+        "atTrackPortableColor": "#3b82f6",
+        "sessions": [
+          {
+            "start": "09:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "onsite"
+          },
+          {
+            "start": "10:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "11:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "13:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "onsite"
+          },
+          {
+            "start": "14:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-wall"
+          },
+          {
+            "start": "15:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-wall"
+          },
+          {
+            "start": "16:00",
+            "enabled": true,
+            "durationMin": 20
+          }
+        ],
+        "siteProfileId": "site-trailer",
+        "siteChargingEnabled": false,
+        "offsiteChargingEnabled": true,
+        "preSessionAtTrack": "onsite",
+        "preTrackArriveSocPct": 20,
+        "arrivalTime": "08:00",
+        "offsiteSites": [
+          {
+            "id": "offsite-wall",
+            "name": "Supercharger",
+            "powerKw": 250,
+            "driveTimeMin": 12,
+            "driveConsumptionKwh": 3,
+            "color": "#22c55e"
+          }
+        ],
+        "preTrackSiteId": "offsite-wall"
+      }
+    },
+    {
+      "id": "track-mrv4reisk053j",
+      "name": "Area 27",
+      "values": {
+        "sessionDurationMin": "15",
+        "towingCostKwh": "4",
+        "gridEnabled": false,
+        "gridPowerKw": "11.5",
+        "atTrackNoneColor": "#f59e0b",
+        "atTrackOnsiteColor": "#a78bfa",
+        "atTrackPortableColor": "#3b82f6",
+        "sessions": [
+          {
+            "start": "09:00",
+            "enabled": true,
+            "durationMin": 15,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-mrv4rojj"
+          },
+          {
+            "start": "10:00",
+            "enabled": true,
+            "durationMin": 15,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-mrv4rojj"
+          },
+          {
+            "start": "11:00",
+            "enabled": false,
+            "durationMin": 15,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 100,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "13:00",
+            "enabled": true,
+            "durationMin": 15,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-mrv4rojj"
+          },
+          {
+            "start": "14:00",
+            "enabled": true,
+            "durationMin": 15,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 70,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "15:00",
+            "enabled": false,
+            "durationMin": 15,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-mrv4rojj"
+          },
+          {
+            "start": "16:00",
+            "enabled": true,
+            "durationMin": 15
+          }
+        ],
+        "siteProfileId": "site-gen-wall",
+        "siteChargingEnabled": false,
+        "offsiteChargingEnabled": true,
+        "preSessionAtTrack": "onsite",
+        "preTrackArriveSocPct": 80,
+        "arrivalTime": "08:00",
+        "offsiteSites": [
+          {
+            "id": "offsite-default",
+            "name": "Supercharger",
+            "powerKw": 250,
+            "driveTimeMin": 25,
+            "driveConsumptionKwh": 8,
+            "color": "#c42132"
+          },
+          {
+            "id": "offsite-mrv4rojj",
+            "name": "Tim Hortens",
+            "powerKw": 50,
+            "driveTimeMin": 13,
+            "driveConsumptionKwh": 4,
+            "color": "#06b6d4"
+          }
+        ],
+        "preTrackSiteId": "offsite-default"
+      }
+    },
+    {
+      "id": "track-mrvd4h7t2dhui",
+      "name": "The Ridge w/ gen",
+      "values": {
+        "sessionDurationMin": "20",
+        "towingCostKwh": "4",
+        "gridEnabled": true,
+        "gridPowerKw": "11.5",
+        "atTrackNoneColor": "#f59e0b",
+        "atTrackOnsiteColor": "#a78bfa",
+        "atTrackPortableColor": "#3b82f6",
+        "sessions": [
+          {
+            "start": "09:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "onsite"
+          },
+          {
+            "start": "10:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "11:00",
+            "enabled": false,
+            "durationMin": 20,
+            "after": "onsite"
+          },
+          {
+            "start": "13:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "onsite"
+          },
+          {
+            "start": "14:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "15:00",
+            "enabled": false,
+            "durationMin": 20,
+            "after": "onsite"
+          },
+          {
+            "start": "16:00",
+            "enabled": true,
+            "durationMin": 20
+          }
+        ],
+        "siteProfileId": "site-gen-wall",
+        "siteChargingEnabled": false,
+        "offsiteChargingEnabled": true,
+        "preSessionAtTrack": "onsite",
+        "preTrackArriveSocPct": 80,
+        "arrivalTime": "08:00",
+        "offsiteSites": [
+          {
+            "id": "offsite-default",
+            "name": "Tumwater",
+            "powerKw": 250,
+            "driveTimeMin": 30,
+            "driveConsumptionKwh": 13,
+            "color": "#22c55e"
+          }
+        ],
+        "preTrackSiteId": "offsite-default"
+      }
+    },
+    {
+      "id": "track-mrvg6c73ywhho",
+      "name": "The Ridge",
+      "values": {
+        "sessionDurationMin": "15",
+        "towingCostKwh": "4",
+        "gridEnabled": false,
+        "gridPowerKw": "11.5",
+        "atTrackNoneColor": "#f59e0b",
+        "atTrackOnsiteColor": "#a78bfa",
+        "atTrackPortableColor": "#3b82f6",
+        "sessions": [
+          {
+            "start": "09:00",
+            "enabled": true,
+            "durationMin": 15,
+            "after": "none"
+          },
+          {
+            "start": "10:00",
+            "enabled": true,
+            "durationMin": 15,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "11:00",
+            "enabled": false,
+            "durationMin": 1,
+            "after": "onsite"
+          },
+          {
+            "start": "13:00",
+            "enabled": true,
+            "durationMin": 15,
+            "after": "none"
+          },
+          {
+            "start": "14:00",
+            "enabled": true,
+            "durationMin": 15,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "15:00",
+            "enabled": false,
+            "durationMin": 1,
+            "after": "onsite"
+          },
+          {
+            "start": "16:00",
+            "enabled": true,
+            "durationMin": 15
+          }
+        ],
+        "siteProfileId": "site-gen-wall",
+        "siteChargingEnabled": false,
+        "offsiteChargingEnabled": true,
+        "preSessionAtTrack": "onsite",
+        "preTrackArriveSocPct": 80,
+        "arrivalTime": "08:00",
+        "offsiteSites": [
+          {
+            "id": "offsite-default",
+            "name": "Tumwater",
+            "powerKw": 250,
+            "driveTimeMin": 30,
+            "driveConsumptionKwh": 13,
+            "color": "#22c55e"
+          }
+        ],
+        "preTrackSiteId": "offsite-default"
+      }
+    },
+    {
+      "id": "track-mrvgezwyhfbqm",
+      "name": "The Ridge w/ gen+battery",
+      "values": {
+        "sessionDurationMin": "20",
+        "towingCostKwh": "4",
+        "gridEnabled": false,
+        "gridPowerKw": "11.5",
+        "atTrackNoneColor": "#f59e0b",
+        "atTrackOnsiteColor": "#a78bfa",
+        "atTrackPortableColor": "#3151f2",
+        "sessions": [
+          {
+            "start": "09:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "onsite"
+          },
+          {
+            "start": "10:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "onsite"
+          },
+          {
+            "start": "11:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "offsite",
+            "offsiteStop": "next",
+            "offsiteUntilSocPct": 80,
+            "offsiteForMin": 30,
+            "residualMode": "onsite",
+            "offsiteSiteId": "offsite-default"
+          },
+          {
+            "start": "13:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "onsite"
+          },
+          {
+            "start": "14:00",
+            "enabled": true,
+            "durationMin": 20,
+            "after": "onsite"
+          },
+          {
+            "start": "15:00",
+            "enabled": false,
+            "durationMin": 20,
+            "after": "onsite"
+          },
+          {
+            "start": "16:00",
+            "enabled": true,
+            "durationMin": 20
+          }
+        ],
+        "siteProfileId": "site-trailer",
+        "siteChargingEnabled": true,
+        "offsiteChargingEnabled": true,
+        "preSessionAtTrack": "onsite",
+        "preTrackArriveSocPct": 80,
+        "arrivalTime": "08:00",
+        "offsiteSites": [
+          {
+            "id": "offsite-default",
+            "name": "Tumwater",
+            "powerKw": 250,
+            "driveTimeMin": 30,
+            "driveConsumptionKwh": 13,
+            "color": "#22c55e"
+          }
+        ],
+        "preTrackSiteId": "offsite-default"
+      }
+    }
+  ],
+  "sites": [
+    {
+      "id": "site-trailer",
+      "name": "Trailer battery/gen",
+      "values": {
+        "genEnabled": true,
+        "genPowerKw": "13",
+        "genFuelType": "gasoline",
+        "fuelBurnGalPerHr": "1.3",
+        "batteryEnabled": true,
+        "trailerCapKwh": "24",
+        "minTrailerSocPct": "5",
+        "dcPowerKw": "30",
+        "dcdcEffPct": "95",
+        "acdcEffPct": "94"
+      }
+    },
+    {
+      "id": "site-gen-wall",
+      "name": "Generator @ 11.5kw",
+      "values": {
+        "genEnabled": true,
+        "genPowerKw": "11.5",
+        "genFuelType": "gasoline",
+        "fuelBurnGalPerHr": "1.3",
+        "batteryEnabled": false,
+        "trailerCapKwh": "50",
+        "minTrailerSocPct": "5",
+        "dcPowerKw": "40",
+        "dcdcEffPct": "95",
+        "acdcEffPct": "94"
+      }
+    }
+  ],
+  "activeCarId": "car-plaid",
+  "activeCarName": "My Plaid",
+  "activeTrackId": "track-mrvd4h7t2dhui",
+  "activeTrackName": "The Ridge w/ gen",
+  "activeSiteId": "site-gen-wall",
+  "activeSiteName": "Generator @ 11.5kw"
+}
