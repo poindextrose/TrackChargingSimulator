@@ -1,3 +1,7 @@
+> **Source of truth:** private monorepo [PlaidModifications](https://github.com/poindextrose/PlaidModifications) → `apps/track-charging/`. This public repo is the **GitHub Pages deploy mirror** only. Last sync: `8ed13d5`.
+>
+> Publish: `./scripts/publish-track-charging.sh` from the monorepo root.
+
 # Track Charging Simulator
 
 A single-file, fully offline planning tool for sizing portable DC fast-charging
@@ -8,6 +12,16 @@ Model car state of charge minute-by-minute across a configurable track day plan
 with **onsite**, **portable**, and **offsite** charging options between sessions.
 
 **Live site:** https://poindextrose.github.io/TrackChargingSimulator/
+
+**Source of truth:** this monorepo package (`apps/track-charging/`).  
+**Public deploy mirror:** [poindextrose/TrackChargingSimulator](https://github.com/poindextrose/TrackChargingSimulator) (GitHub Pages).
+
+To publish after monorepo changes:
+
+```bash
+# from monorepo root
+./scripts/publish-track-charging.sh
+```
 
 ## Defaults
 
